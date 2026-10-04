@@ -15,9 +15,6 @@ dependencies:
   shared_preferences: ^2.2.3
   uuid: ^4.4.0
   image_picker: ^1.1.2
-  flutter_secure_storage: ^9.2.2
-  bdk_flutter: ^0.31.3
-  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

@@ -1,17 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'features/onboarding/scorch_preview_screen.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app_routes.dart';
-import 'data/app_environment.dart';
-import 'features/live/live_workspace.dart';
-import 'features/live/live_signup_screen.dart';
 import 'features/auth/login_screen.dart';
 import 'features/auth/welcome_screen.dart';
 import 'features/auth/signup_screen.dart';
+import 'features/dashboard/vtu_dashboard_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
+import 'features/onboarding/scorch_preview_screen.dart';
 import 'features/onboarding/splash_screen.dart';
-import 'features/shell/main_shell.dart';
 import 'state/providers/accent_color_provider.dart';
 import 'state/providers/theme_mode_provider.dart';
 import 'theme/app_colors.dart';
@@ -19,7 +16,6 @@ import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  AppEnvironment.validate();
   runApp(const ProviderScope(child: ScorchePayApp()));
 }
 
@@ -42,12 +38,9 @@ class ScorchePayApp extends ConsumerWidget {
         AppRoutes.splash: (_) => const SplashScreen(),
         AppRoutes.onboarding: (_) => const OnboardingScreen(),
         AppRoutes.welcome: (_) => const WelcomeScreen(),
-        AppRoutes.signup: (_) => AppEnvironment.isDemo
-            ? const SignUpScreen()
-            : const LiveSignupScreen(),
+        AppRoutes.signup: (_) => const SignUpScreen(),
         AppRoutes.login: (_) => const LoginScreen(),
-        AppRoutes.home: (_) =>
-            AppEnvironment.isDemo ? const MainShell() : const LiveWorkspace(),
+        AppRoutes.home: (_) => const VtuDashboardScreen(),
       },
       // AppColors' neutral and accent tokens are mutable static getters
       // rather than InheritedWidget-backed values, so a brightness or
@@ -67,14 +60,7 @@ class ScorchePayApp extends ConsumerWidget {
         AppColors.configure(resolved);
         AppColors.configureAccent(accentColor);
         return KeyedSubtree(
-            key: ValueKey((resolved, accentColor)),
-            child: AppEnvironment.isDemo
-                ? Banner(
-                    message: 'DEMO',
-                    location: BannerLocation.topEnd,
-                    color: AppColors.accent,
-                    child: child!)
-                : child!);
+            key: ValueKey((resolved, accentColor)), child: child!);
       },
     );
   }

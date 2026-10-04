@@ -1,7 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 
-import '../../data/app_environment.dart';
 import '../models/app_notification.dart';
 import '../models/automation.dart';
 import '../models/escrow.dart';
@@ -26,7 +25,6 @@ const _uuid = Uuid();
 /// pattern) and persist to disk.
 class AppStateNotifier extends StateNotifier<AppState> {
   AppStateNotifier(this._store) : super(AppState.seed()) {
-    if (!AppEnvironment.isDemo) throw StateError('Demo state cannot be loaded in live mode');
     _load();
   }
 

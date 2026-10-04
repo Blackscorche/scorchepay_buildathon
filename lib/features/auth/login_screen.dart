@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../app_routes.dart';
-import '../../data/api_client.dart';
-import '../../data/app_environment.dart';
 import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
@@ -42,12 +40,8 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() => _busy = true);
     try {
-      if (AppEnvironment.isDemo) {
-        if (_pin != '1234') throw const ApiRequestException('Demo PIN is 1234');
-      } else {
-        await ApiClient.instance
-            .login(username: _contactController.text.trim(), pin: _pin);
-      }
+      await Future.delayed(const Duration(milliseconds: 300));
+      if (_pin != '1234') throw Exception('Demo PIN is 1234');
       if (mounted)
         Navigator.of(context)
             .pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
@@ -101,10 +95,7 @@ class _LoginScreenState extends State<LoginScreen> {
                               activity: ScorchActivity.protect, size: 64)),
                       Text('Welcome back', style: AppText.pageTitle),
                       const SizedBox(height: 8),
-                      Text(
-                          AppEnvironment.isDemo
-                              ? 'Explore demo mode. PIN: 1234.'
-                              : 'Log in to continue to your money.',
+                      Text('Explore demo mode. PIN: 1234.',
                           style: AppText.bodyMuted),
                       const SizedBox(height: 24),
                       TextField(

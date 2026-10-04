@@ -7,8 +7,6 @@ import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import 'login_screen.dart';
 import 'signup_screen.dart';
-import '../../data/app_environment.dart';
-import '../live/live_signup_screen.dart';
 
 /// Landing screen after onboarding — branches into sign up or log in.
 class WelcomeScreen extends StatelessWidget {
@@ -61,10 +59,8 @@ class WelcomeScreen extends StatelessWidget {
                                             onPressed: () {
                                               Navigator.of(context).push(
                                                 MaterialPageRoute(
-                                                    builder: (_) => AppEnvironment
-                                                            .isDemo
-                                                        ? const SignUpScreen()
-                                                        : const LiveSignupScreen()),
+                                                    builder: (_) =>
+                                                        const SignUpScreen()),
                                               );
                                             },
                                           ),
