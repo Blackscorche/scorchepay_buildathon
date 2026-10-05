@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../app_routes.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
+import '../../state/providers/providers.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 
@@ -28,14 +30,14 @@ const _slides = [
 ];
 
 /// A feature-led introduction with a matching Scorch scene for each pillar.
-class OnboardingScreen extends StatefulWidget {
+class OnboardingScreen extends ConsumerStatefulWidget {
   const OnboardingScreen({super.key});
 
   @override
-  State<OnboardingScreen> createState() => _OnboardingScreenState();
+  ConsumerState<OnboardingScreen> createState() => _OnboardingScreenState();
 }
 
-class _OnboardingScreenState extends State<OnboardingScreen> {
+class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   final PageController _controller = PageController();
   int _page = 0;
 
@@ -46,6 +48,8 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   }
 
   void _finish() {
+    var appState = ref.read(appStateProvider.notifier);
+    appState.onCompleteOnboarding();
     Navigator.of(context).pushReplacementNamed(AppRoutes.welcome);
   }
 

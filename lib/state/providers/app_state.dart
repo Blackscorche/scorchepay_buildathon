@@ -33,6 +33,7 @@ class AppState {
     required this.automationRules,
     required this.notifications,
     this.hideBalance = false,
+    this.showOnboarding = true,
   });
 
   final String username;
@@ -60,6 +61,7 @@ class AppState {
   final List<AppNotification> notifications;
 
   bool hideBalance;
+  bool showOnboarding;
 
   /// Total value of all escrow contracts currently holding this user's
   /// funds (funded/disputed — not yet released/refunded), converted to
@@ -142,6 +144,7 @@ class AppState {
       automationRules: List<AutomationRule>.from(automationRules),
       notifications: List<AppNotification>.from(notifications),
       hideBalance: hideBalance,
+      showOnboarding: showOnboarding,
     );
   }
 
@@ -159,6 +162,7 @@ class AppState {
         'automationRules': automationRules.map((e) => e.toJson()).toList(),
         'notifications': notifications.map((e) => e.toJson()).toList(),
         'hideBalance': hideBalance,
+        'showOnboarding': showOnboarding,
       };
 
   factory AppState.fromJson(Map<String, dynamic> json) => AppState(
@@ -194,6 +198,7 @@ class AppState {
                 AppNotification.fromJson(Map<String, dynamic>.from(e as Map)))
             .toList(),
         hideBalance: json['hideBalance'] as bool? ?? false,
+        showOnboarding: json['showOnboarding'] as bool? ?? true,
       );
 
   /// Fresh-install seed state — mirrors `MockData` so the app looks the

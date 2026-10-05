@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:scorchepay/state/providers/providers.dart';
 import '../../core/widgets/scorchepay_logo.dart';
 import '../../app_routes.dart';
 import '../../core/widgets/decorative_rings.dart';
@@ -7,14 +9,14 @@ import '../../theme/app_text_styles.dart';
 
 /// First screen shown on app launch — brand mark, then auto-advances into
 /// the onboarding carousel.
-class SplashScreen extends StatefulWidget {
+class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
   @override
-  State<SplashScreen> createState() => _SplashScreenState();
+  ConsumerState<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> {
+class _SplashScreenState extends ConsumerState<SplashScreen> {
   @override
   void initState() {
     super.initState();
@@ -25,7 +27,10 @@ class _SplashScreenState extends State<SplashScreen> {
       // still fires even when Splash was never the visible screen. Without
       // this check it would hijack navigation on top of an unrelated route.
       if (mounted && (ModalRoute.of(context)?.isCurrent ?? false)) {
-        Navigator.of(context).pushReplacementNamed(AppRoutes.onboarding);
+        final showOnboarding = ref.read(showOnboardingProvider);
+        final finalRoute =
+            showOnboarding ? AppRoutes.onboarding : AppRoutes.welcome;
+        Navigator.of(context).pushReplacementNamed(finalRoute);
       }
     });
   }

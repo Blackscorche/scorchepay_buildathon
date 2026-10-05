@@ -106,7 +106,6 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String currency,
       required double amount,
       String? note}) async {
-
     try {
       LedgerService.internalTransferOut(state,
           currency: currency,
@@ -350,7 +349,8 @@ class AppStateNotifier extends StateNotifier<AppState> {
     required double faceValueUsd,
     required double payoutNaira,
   }) async {
-    final result = await SimulatedProviders.executeTrade(asset: brand, amount: faceValueUsd);
+    final result = await SimulatedProviders.executeTrade(
+        asset: brand, amount: faceValueUsd);
     if (result.failed) return result;
     LedgerService.credit(
       state,
@@ -367,7 +367,8 @@ class AppStateNotifier extends StateNotifier<AppState> {
             at: DateTime.now(),
             category: NotificationCategory.deposits,
             title: 'Gift card exchanged',
-            body: '₦${payoutNaira.toStringAsFixed(2)} credited for your \$${faceValueUsd.toStringAsFixed(0)} $brand card.'));
+            body:
+                '₦${payoutNaira.toStringAsFixed(2)} credited for your \$${faceValueUsd.toStringAsFixed(0)} $brand card.'));
     await _commit();
     return result;
   }
@@ -542,6 +543,11 @@ class AppStateNotifier extends StateNotifier<AppState> {
 
   Future<void> toggleHideBalance() async {
     state.hideBalance = !state.hideBalance;
+    await _commit();
+  }
+
+  Future<void> onCompleteOnboarding() async {
+    state.showOnboarding = false;
     await _commit();
   }
 

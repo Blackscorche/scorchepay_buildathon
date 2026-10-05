@@ -26,3 +26,6 @@ final notificationsProvider =
     Provider((ref) => ref.watch(appStateProvider).notifications);
 final unreadNotificationCountProvider = Provider<int>(
     (ref) => ref.watch(notificationsProvider).where((n) => !n.read).length);
+final showOnboardingProvider = Provider<bool>(
+  (ref) => ref.watch(appStateProvider).showOnboarding,
+);
