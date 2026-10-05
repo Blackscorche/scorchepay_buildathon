@@ -20,39 +20,10 @@ class _OnboardingSlide {
 
 const _slides = [
   _OnboardingSlide(
-    activity: ScorchActivity.wallet,
-    category: 'WALLETS & TRANSFERS',
-    title: 'Your money. More connected.',
-    body:
-        'Keep your currency wallets in view. Send by username, receive money and follow your transactions in one place.',
-  ),
-  _OnboardingSlide(
     activity: ScorchActivity.pay,
-    category: 'SMART PAY & EVERYDAY BILLS',
+    category: 'EVERYDAY BILLS',
     title: 'Make room for everyday life.',
-    body:
-        'Airtime, data, bills and gift cards. Explore Smart Pay and review how each payment is funded before you confirm.',
-  ),
-  _OnboardingSlide(
-    activity: ScorchActivity.crypto,
-    category: 'CRYPTO & P2P',
-    title: 'Find your crypto rhythm.',
-    body:
-        'Explore BTC, ETH and USDT. Follow prices, review buy, sell and swap options, and discover P2P offers.',
-  ),
-  _OnboardingSlide(
-    activity: ScorchActivity.save,
-    category: 'SAVINGS & GROUP GOALS',
-    title: 'Small steps. Bigger plans.',
-    body:
-        'Give your next goal a home. Set a savings target, follow your progress or build toward something together.',
-  ),
-  _OnboardingSlide(
-    activity: ScorchActivity.protect,
-    category: 'ESCROW & DEALS',
-    title: 'Agree first. Release with care.',
-    body:
-        'Set the terms of a deal, follow delivery and review the release of funds with ScorchePay’s escrow tools.',
+    body: 'Airtime, data, bills. Pay for everyday bills with crypto.',
   ),
 ];
 
@@ -81,6 +52,22 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
   @override
   Widget build(BuildContext context) {
     final isLast = _page == _slides.length - 1;
+    final hasMoreThanAChild = _slides.length > 1;
+
+    var skipText = Align(
+      alignment: Alignment.topLeft,
+      child: TextButton(
+        onPressed: _finish,
+        child: Text(
+          'Skip',
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: AppColors.muted,
+          ),
+        ),
+      ),
+    );
     return Scaffold(
       backgroundColor: AppColors.page,
       body: Stack(
@@ -91,20 +78,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 22),
               child: Column(
                 children: [
-                  Align(
-                    alignment: Alignment.topLeft,
-                    child: TextButton(
-                      onPressed: _finish,
-                      child: Text(
-                        'Skip',
-                        style: TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.muted,
-                        ),
-                      ),
-                    ),
-                  ),
+                  if (hasMoreThanAChild) skipText,
                   Expanded(
                     child: PageView.builder(
                       controller: _controller,
