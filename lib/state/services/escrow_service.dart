@@ -107,8 +107,9 @@ class EscrowService {
     if (result.isSuccess) {
       e.status = EscrowStatus.funded;
       for (final m in e.milestones) {
-        if (m.status == MilestoneStatus.pending)
+        if (m.status == MilestoneStatus.pending) {
           m.status = MilestoneStatus.inProgress;
+        }
       }
       e.log('You',
           'Funded ${e.totalAmount.toStringAsFixed(2)} ${e.currency} — funds now held in escrow');
@@ -125,8 +126,9 @@ class EscrowService {
     if (e == null || e.status != EscrowStatus.awaitingFunding) return;
     e.status = EscrowStatus.funded;
     for (final m in e.milestones) {
-      if (m.status == MilestoneStatus.pending)
+      if (m.status == MilestoneStatus.pending) {
         m.status = MilestoneStatus.inProgress;
+      }
     }
     e.log(e.counterpartyName,
         'Funded ${e.totalAmount.toStringAsFixed(2)} ${e.currency} (simulated) — funds now held in escrow');
@@ -158,7 +160,9 @@ class EscrowService {
     final m = e == null ? null : findMilestone(e, milestoneId);
     if (e == null || m == null) return;
     if (m.status != MilestoneStatus.evidenceSubmitted &&
-        m.status != MilestoneStatus.reviewWindow) return;
+        m.status != MilestoneStatus.reviewWindow) {
+      return;
+    }
     m.status = MilestoneStatus.released;
     LedgerService.credit(
       s,

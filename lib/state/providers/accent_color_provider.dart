@@ -47,11 +47,10 @@ class AccentColorNotifier extends StateNotifier<Color> {
     state = color;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_key, color.value);
+      await prefs.setInt(_key, color.toARGB32());
     } catch (_) {}
   }
 }
 
-final accentColorProvider =
-    StateNotifierProvider<AccentColorNotifier, Color>(
-        (ref) => AccentColorNotifier());
+final accentColorProvider = StateNotifierProvider<AccentColorNotifier, Color>(
+    (ref) => AccentColorNotifier());

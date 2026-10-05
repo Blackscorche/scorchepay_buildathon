@@ -50,7 +50,8 @@ class DevicePhotoCard extends StatelessWidget {
               icon: const Icon(AppIcons.chevronLeft, color: Colors.white),
               onPressed: () => Navigator.of(context).pop(),
             ),
-            title: Text(label, style: const TextStyle(color: Colors.white, fontSize: 16)),
+            title: Text(label,
+                style: const TextStyle(color: Colors.white, fontSize: 16)),
           ),
           body: Center(
             child: InteractiveViewer(
@@ -96,10 +97,14 @@ class DevicePhotoCard extends StatelessWidget {
             width: double.infinity,
             clipBehavior: Clip.antiAlias,
             decoration: BoxDecoration(
-              color: hasPhoto ? AppColors.surface2 : AppColors.surface2.withOpacity(0.6),
+              color: hasPhoto
+                  ? AppColors.surface2
+                  : AppColors.surface2.withValues(alpha: 0.6),
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
-                color: hasPhoto ? AppColors.accent.withOpacity(0.4) : AppColors.borderStrong,
+                color: hasPhoto
+                    ? AppColors.accent.withValues(alpha: 0.4)
+                    : AppColors.borderStrong,
                 width: hasPhoto ? 1.5 : 1,
               ),
             ),
@@ -113,22 +118,30 @@ class DevicePhotoCard extends StatelessWidget {
                         left: 0,
                         right: 0,
                         child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
                           decoration: BoxDecoration(
                             gradient: LinearGradient(
                               begin: Alignment.bottomCenter,
                               end: Alignment.topCenter,
-                              colors: [Colors.black.withOpacity(0.8), Colors.transparent],
+                              colors: [
+                                Colors.black.withValues(alpha: 0.8),
+                                Colors.transparent
+                              ],
                             ),
                           ),
                           child: Row(
                             children: [
-                              const Icon(AppIcons.check, size: 14, color: AppColors.gain),
+                              const Icon(AppIcons.check,
+                                  size: 14, color: AppColors.gain),
                               const SizedBox(width: 6),
                               const Expanded(
                                 child: Text(
                                   'Photo attached · Tap to view full size',
-                                  style: TextStyle(fontSize: 11.5, color: Colors.white, fontWeight: FontWeight.w600),
+                                  style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600),
                                 ),
                               ),
                               GestureDetector(
@@ -136,10 +149,12 @@ class DevicePhotoCard extends StatelessWidget {
                                 child: Container(
                                   padding: const EdgeInsets.all(4),
                                   decoration: BoxDecoration(
-                                    color: AppColors.loss.withOpacity(0.8),
+                                    color:
+                                        AppColors.loss.withValues(alpha: 0.8),
                                     shape: BoxShape.circle,
                                   ),
-                                  child: const Icon(AppIcons.trash, size: 12, color: Colors.white),
+                                  child: const Icon(AppIcons.trash,
+                                      size: 12, color: Colors.white),
                                 ),
                               ),
                             ],
@@ -163,12 +178,16 @@ class DevicePhotoCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         'Tap to upload photo',
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: AppColors.textPrimary),
+                        style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.textPrimary),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         hint,
-                        style: TextStyle(fontSize: 11.5, color: AppColors.muted),
+                        style:
+                            TextStyle(fontSize: 11.5, color: AppColors.muted),
                         textAlign: TextAlign.center,
                       ),
                     ],

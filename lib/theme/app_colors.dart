@@ -136,7 +136,9 @@ class AppColors {
 
   static Color _lighten(Color c, double amount) {
     final hsl = HSLColor.fromColor(c);
-    return hsl.withLightness((hsl.lightness + amount).clamp(0.0, 1.0)).toColor();
+    return hsl
+        .withLightness((hsl.lightness + amount).clamp(0.0, 1.0))
+        .toColor();
   }
 
   static Color _darken(Color c, double amount) => _lighten(c, -amount);
@@ -144,7 +146,7 @@ class AppColors {
   static Color get accent => _accentBase;
   static Color get accentGradStart => _lighten(_accentBase, 0.04);
   static Color get accentGradEnd => _darken(_accentBase, 0.05);
-  static Color get accentSoft => _accentBase.withOpacity(0.13);
+  static Color get accentSoft => _accentBase.withValues(alpha: 0.13);
 
   static LinearGradient get accentGradient => LinearGradient(
         begin: Alignment.topLeft,
@@ -189,5 +191,5 @@ class AppColors {
   static List<Color> get accentRamp =>
       [accent, accentTint1, accentShade1, accentTint2, accentShade2];
 
-  static Color statusSoft(Color c) => c.withOpacity(0.13);
+  static Color statusSoft(Color c) => c.withValues(alpha: 0.13);
 }

@@ -124,7 +124,8 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                             icon: entry.icon,
                             label: entry.label,
                             onTap: () => Navigator.of(context).push(
-                                MaterialPageRoute(builder: (_) => entry.build())),
+                                MaterialPageRoute(
+                                    builder: (_) => entry.build())),
                           ),
                         ),
                     ],
@@ -143,7 +144,7 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                        color: AppColors.gain.withOpacity(0.14),
+                        color: AppColors.gain.withValues(alpha: 0.14),
                         borderRadius: BorderRadius.circular(20)),
                     child: const Row(
                       mainAxisSize: MainAxisSize.min,
@@ -212,7 +213,12 @@ final List<_VtuEntry> _vtuEntries = [
             icon: AppIcons.bolt,
             title: 'Electricity',
             subtitle: 'Instant token generation for meter recharge',
-            providers: ['Ikeja Electric', 'Eko Electric', 'Abuja DisCo', 'PHED'],
+            providers: [
+              'Ikeja Electric',
+              'Eko Electric',
+              'Abuja DisCo',
+              'PHED'
+            ],
             idLabel: 'Meter number',
             idHint: 'Enter your 11-digit meter number',
           )),
@@ -315,7 +321,8 @@ class _BalanceRow extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 2),
-                Text('${asset.holding} ${asset.symbol}', style: AppText.caption),
+                Text('${asset.holding} ${asset.symbol}',
+                    style: AppText.caption),
               ],
             ),
           ),

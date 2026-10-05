@@ -116,7 +116,9 @@ class SavingsService {
     if (g == null ||
         g.type != SavingsType.roundUp ||
         g.roundUpUnit == null ||
-        !g.active) return;
+        !g.active) {
+      return;
+    }
     final unit = g.roundUpUnit!;
     final rounded = (transactionAmount / unit).ceil() * unit;
     final diff = rounded - transactionAmount;
@@ -140,8 +142,9 @@ class SavingsService {
   static void groupContribute(AppState s, String goalId, String memberUsername,
       {bool bySimulated = true}) {
     final g = find(s, goalId);
-    if (g == null || g.type != SavingsType.group || g.groupMembers == null)
+    if (g == null || g.type != SavingsType.group || g.groupMembers == null) {
       return;
+    }
     final member =
         g.groupMembers!.where((m) => m.username == memberUsername).firstOrNull;
     if (member == null || member.hasContributedThisCycle) return;

@@ -72,15 +72,18 @@ class GlassHeroCard extends StatelessWidget {
           Positioned(
               top: -70,
               right: -60,
-              child: _ring(230, AppColors.accent.withOpacity(0.45), width: 28)),
+              child: _ring(230, AppColors.accent.withValues(alpha: 0.45),
+                  width: 28)),
           Positioned(
               top: -6,
               right: -86,
-              child: _ring(150, AppColors.accent.withOpacity(0.65), width: 30)),
+              child: _ring(150, AppColors.accent.withValues(alpha: 0.65),
+                  width: 30)),
           Positioned(
               bottom: -90,
               left: -70,
-              child: _ring(190, AppColors.textPrimary.withOpacity(0.07), width: 26)),
+              child: _ring(190, AppColors.textPrimary.withValues(alpha: 0.07),
+                  width: 26)),
           Positioned(
             top: 0,
             left: 20,
@@ -89,9 +92,9 @@ class GlassHeroCard extends StatelessWidget {
               height: 1,
               decoration: BoxDecoration(
                 gradient: LinearGradient(colors: [
-                  AppColors.textPrimary.withOpacity(0),
-                  AppColors.textPrimary.withOpacity(0.18),
-                  AppColors.textPrimary.withOpacity(0),
+                  AppColors.textPrimary.withValues(alpha: 0),
+                  AppColors.textPrimary.withValues(alpha: 0.18),
+                  AppColors.textPrimary.withValues(alpha: 0),
                 ]),
               ),
             ),

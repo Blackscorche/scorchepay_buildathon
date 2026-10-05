@@ -34,7 +34,7 @@ class StatusBadge extends StatelessWidget {
       decoration: BoxDecoration(
         color: tone == BadgeTone.neutral
             ? AppColors.surface3
-            : c.withOpacity(0.14),
+            : c.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(

@@ -59,7 +59,7 @@ class IconActionButton extends StatelessWidget {
               borderRadius: BorderRadius.circular(radius),
               boxShadow: [
                 BoxShadow(
-                    color: AppColors.accent.withOpacity(glowOpacity),
+                    color: AppColors.accent.withValues(alpha: glowOpacity),
                     blurRadius: glowBlur,
                     offset: const Offset(0, 4)),
               ],
@@ -81,8 +81,8 @@ class IconActionButton extends StatelessWidget {
                           begin: Alignment.topCenter,
                           end: Alignment.bottomCenter,
                           colors: [
-                            Colors.white.withOpacity(0.16),
-                            Colors.white.withOpacity(0)
+                            Colors.white.withValues(alpha: 0.16),
+                            Colors.white.withValues(alpha: 0)
                           ],
                         ),
                       ),
@@ -91,7 +91,7 @@ class IconActionButton extends StatelessWidget {
                   Center(
                       child: Icon(icon,
                           size: size * 0.4,
-                          color: Colors.white.withOpacity(0.9))),
+                          color: Colors.white.withValues(alpha: 0.9))),
                 ],
               ),
             ),

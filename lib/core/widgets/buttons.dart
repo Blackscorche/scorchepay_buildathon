@@ -45,7 +45,7 @@ class PrimaryButton extends StatelessWidget {
             : [
                 BoxShadow(
                   color: (destructive ? AppColors.loss : AppColors.accent)
-                      .withOpacity(0.35),
+                      .withValues(alpha: 0.35),
                   blurRadius: 22,
                   offset: const Offset(0, 10),
                 ),
@@ -113,12 +113,12 @@ class SecondaryButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 14),
         decoration: BoxDecoration(
           color: destructive
-              ? AppColors.loss.withOpacity(0.08)
+              ? AppColors.loss.withValues(alpha: 0.08)
               : AppColors.surface2,
           borderRadius: BorderRadius.circular(AppRadius.md),
           border: Border.all(
               color: destructive
-                  ? AppColors.loss.withOpacity(0.3)
+                  ? AppColors.loss.withValues(alpha: 0.3)
                   : AppColors.borderStrong),
         ),
         child: Row(
@@ -128,8 +128,7 @@ class SecondaryButton extends StatelessWidget {
             if (icon != null) ...[
               Icon(icon,
                   size: 17,
-                  color:
-                      destructive ? AppColors.loss : AppColors.textPrimary),
+                  color: destructive ? AppColors.loss : AppColors.textPrimary),
               const SizedBox(width: 8),
             ],
             Flexible(
@@ -138,9 +137,8 @@ class SecondaryButton extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppText.button.copyWith(
-                    color: destructive
-                        ? AppColors.loss
-                        : AppColors.textPrimary),
+                    color:
+                        destructive ? AppColors.loss : AppColors.textPrimary),
               ),
             ),
           ],

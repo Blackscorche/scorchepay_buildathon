@@ -102,8 +102,7 @@ class _DataScreenState extends State<DataScreen> {
             TextField(
               controller: _phoneController,
               keyboardType: TextInputType.phone,
-              style:
-                  TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 13.5),
               decoration: InputDecoration(
                 hintText: '080X XXX XXXX',
                 prefixIcon:
@@ -148,7 +147,7 @@ class _PlanRow extends StatelessWidget {
           color: selected ? AppColors.accentSoft : AppColors.surface2,
           border: Border.all(
               color: selected
-                  ? AppColors.accent.withOpacity(0.5)
+                  ? AppColors.accent.withValues(alpha: 0.5)
                   : AppColors.border),
           borderRadius: BorderRadius.circular(14),
         ),

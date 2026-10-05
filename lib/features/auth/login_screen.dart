@@ -42,15 +42,17 @@ class _LoginScreenState extends State<LoginScreen> {
     try {
       await Future.delayed(const Duration(milliseconds: 300));
       if (_pin != '1234') throw Exception('Demo PIN is 1234');
-      if (mounted)
+      if (mounted) {
         Navigator.of(context)
             .pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
+      }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() {
           _error = error.toString();
           _pin = '';
         });
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

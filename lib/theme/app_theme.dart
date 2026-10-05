@@ -37,7 +37,8 @@ class AppTheme {
   /// of the two variants briefly wrong (or both identical). Semantic
   /// colors (gain/loss/warn/info) are true consts and safe to use
   /// directly either way.
-  static ThemeData _build(Brightness brightness, NeutralPalette n, Color accent) {
+  static ThemeData _build(
+      Brightness brightness, NeutralPalette n, Color accent) {
     final base = ThemeData(brightness: brightness, useMaterial3: true);
     return base.copyWith(
       scaffoldBackgroundColor: n.page,
@@ -53,7 +54,7 @@ class AppTheme {
       dividerColor: n.hairline,
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: accent,
-        selectionColor: accent.withOpacity(0.13),
+        selectionColor: accent.withValues(alpha: 0.13),
         selectionHandleColor: accent,
       ),
       appBarTheme: AppBarTheme(

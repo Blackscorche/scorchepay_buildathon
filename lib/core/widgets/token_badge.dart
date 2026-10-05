@@ -28,9 +28,9 @@ class TokenBadge extends StatelessWidget {
         height: size,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: color.withOpacity(0.16),
+          color: color.withValues(alpha: 0.16),
           shape: BoxShape.circle,
-          border: Border.all(color: color.withOpacity(0.3)),
+          border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         child: url == null || url.isEmpty
             ? _glyphFallback()

@@ -157,7 +157,7 @@ class _Chip extends StatelessWidget {
           color: selected ? AppColors.accentSoft : AppColors.surface2,
           border: Border.all(
               color: selected
-                  ? AppColors.accent.withOpacity(0.5)
+                  ? AppColors.accent.withValues(alpha: 0.5)
                   : AppColors.border),
           borderRadius: BorderRadius.circular(20),
         ),
@@ -193,7 +193,7 @@ class _PackageRow extends StatelessWidget {
           color: selected ? AppColors.accentSoft : AppColors.surface2,
           border: Border.all(
               color: selected
-                  ? AppColors.accent.withOpacity(0.5)
+                  ? AppColors.accent.withValues(alpha: 0.5)
                   : AppColors.border),
           borderRadius: BorderRadius.circular(14),
         ),

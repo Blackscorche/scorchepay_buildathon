@@ -97,8 +97,9 @@ class SmartPayEngine {
     }
 
     final candidates = <String>[];
-    if (s.fiatBalances.containsKey(nativeCurrency))
+    if (s.fiatBalances.containsKey(nativeCurrency)) {
       candidates.add(nativeCurrency);
+    }
     for (final c in s.cryptoHoldings.keys) {
       if (_stablecoins.contains(c)) candidates.add(c);
     }

@@ -44,28 +44,28 @@ class AuthBackdrop extends StatelessWidget {
                 right: -90,
                 child: RingCircle(
                     size: 300,
-                    color: AppColors.accent.withOpacity(0.35),
+                    color: AppColors.accent.withValues(alpha: 0.35),
                     width: 34)),
             Positioned(
                 top: -10,
                 right: -130,
                 child: RingCircle(
                     size: 200,
-                    color: AppColors.accent.withOpacity(0.55),
+                    color: AppColors.accent.withValues(alpha: 0.55),
                     width: 36)),
             Positioned(
                 bottom: -150,
                 left: -110,
                 child: RingCircle(
                     size: 280,
-                    color: Colors.white.withOpacity(0.05),
+                    color: Colors.white.withValues(alpha: 0.05),
                     width: 30)),
             Positioned(
                 bottom: -40,
                 left: -40,
                 child: RingCircle(
                     size: 130,
-                    color: AppColors.accent.withOpacity(0.18),
+                    color: AppColors.accent.withValues(alpha: 0.18),
                     width: 24)),
           ],
         ),

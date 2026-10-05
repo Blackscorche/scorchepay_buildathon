@@ -101,14 +101,16 @@ class _KycScreenState extends State<KycScreen> {
   Future<void> _pickDoc({required bool isFront}) async {
     final existing = isFront ? _frontPhoto : _backPhoto;
     final result = await showPhotoPickerSheet(context,
-        title: isFront ? 'Front of ID' : 'Back of ID', hasPhoto: existing != null);
+        title: isFront ? 'Front of ID' : 'Back of ID',
+        hasPhoto: existing != null);
     if (result == null || !mounted) return;
     final file = result.removed ? null : result.file;
     setState(() => isFront ? _frontPhoto = file : _backPhoto = file);
   }
 
   Future<void> _pickSelfie() async {
-    final result = await showPhotoPickerSheet(context, title: 'Take a selfie', hasPhoto: _selfiePhoto != null);
+    final result = await showPhotoPickerSheet(context,
+        title: 'Take a selfie', hasPhoto: _selfiePhoto != null);
     if (result == null || !mounted) return;
     setState(() => _selfiePhoto = result.removed ? null : result.file);
   }
@@ -233,7 +235,10 @@ class _KycScreenState extends State<KycScreen> {
             decoration: BoxDecoration(
               shape: BoxShape.circle,
               color: hasSelfie ? null : AppColors.surface2,
-              image: hasSelfie ? DecorationImage(image: FileImage(_selfiePhoto!), fit: BoxFit.cover) : null,
+              image: hasSelfie
+                  ? DecorationImage(
+                      image: FileImage(_selfiePhoto!), fit: BoxFit.cover)
+                  : null,
               border: Border.all(
                   color: hasSelfie ? AppColors.accent : AppColors.borderStrong,
                   width: 2),
@@ -243,10 +248,11 @@ class _KycScreenState extends State<KycScreen> {
                 ? Container(
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
-                      color: Colors.black.withOpacity(0.35),
+                      color: Colors.black.withValues(alpha: 0.35),
                     ),
                     padding: const EdgeInsets.all(10),
-                    child: const Icon(AppIcons.check, size: 24, color: Colors.white),
+                    child: const Icon(AppIcons.check,
+                        size: 24, color: Colors.white),
                   )
                 : Column(
                     mainAxisSize: MainAxisSize.min,
@@ -255,7 +261,10 @@ class _KycScreenState extends State<KycScreen> {
                       SizedBox(height: 8),
                       Text(
                         'Tap to capture',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.muted),
+                        style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: AppColors.muted),
                       ),
                     ],
                   ),
@@ -285,7 +294,7 @@ class _IdTypeTile extends StatelessWidget {
           color: selected ? AppColors.accentSoft : AppColors.surface2,
           border: Border.all(
               color: selected
-                  ? AppColors.accent.withOpacity(0.5)
+                  ? AppColors.accent.withValues(alpha: 0.5)
                   : AppColors.border),
           borderRadius: BorderRadius.circular(14),
         ),
@@ -311,7 +320,8 @@ class _IdTypeTile extends StatelessWidget {
 }
 
 class _DocTile extends StatelessWidget {
-  const _DocTile({required this.label, required this.photo, required this.onTap});
+  const _DocTile(
+      {required this.label, required this.photo, required this.onTap});
 
   final String label;
   final File? photo;
@@ -331,22 +341,31 @@ class _DocTile extends StatelessWidget {
             color: uploaded ? AppColors.accentSoft : AppColors.surface2,
             border: Border.all(
                 color: uploaded
-                    ? AppColors.accent.withOpacity(0.5)
+                    ? AppColors.accent.withValues(alpha: 0.5)
                     : AppColors.border),
             borderRadius: BorderRadius.circular(16),
-            image: uploaded ? DecorationImage(image: FileImage(photo!), fit: BoxFit.cover) : null,
+            image: uploaded
+                ? DecorationImage(image: FileImage(photo!), fit: BoxFit.cover)
+                : null,
           ),
           alignment: Alignment.center,
           child: uploaded
               ? Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(color: Colors.black.withOpacity(0.5), borderRadius: BorderRadius.circular(20)),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      borderRadius: BorderRadius.circular(20)),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Icon(AppIcons.check, size: 13, color: Colors.white),
                       SizedBox(width: 5),
-                      Text('Uploaded', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Colors.white)),
+                      Text('Uploaded',
+                          style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.white)),
                     ],
                   ),
                 )
@@ -358,7 +377,10 @@ class _DocTile extends StatelessWidget {
                     Text(
                       label,
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                      style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.textSecondary),
                     ),
                   ],
                 ),

@@ -81,7 +81,7 @@ Future<void> showAppModal(
           width: 46,
           height: 46,
           decoration: BoxDecoration(
-            color: color.withOpacity(0.14),
+            color: color.withValues(alpha: 0.14),
             borderRadius: BorderRadius.circular(AppRadius.md),
           ),
           child: Icon(icon, size: 21, color: color),

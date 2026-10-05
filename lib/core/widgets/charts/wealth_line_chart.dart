@@ -48,7 +48,7 @@ class _LineChartPainter extends CustomPainter {
 
     // Recessive gridlines at 25/50/75%
     final gridPaint = Paint()
-      ..color = Colors.white.withOpacity(0.05)
+      ..color = Colors.white.withValues(alpha: 0.05)
       ..strokeWidth = 1;
     for (final f in [0.25, 0.5, 0.75]) {
       final y = size.height * f;
@@ -76,13 +76,13 @@ class _LineChartPainter extends CustomPainter {
       ..shader = LinearGradient(
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
-        colors: [color.withOpacity(0.28), color.withOpacity(0)],
+        colors: [color.withValues(alpha: 0.28), color.withValues(alpha: 0)],
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
     canvas.drawPath(areaPath, areaPaint);
 
     // Soft glow behind the line so it reads as lit, not flat.
     final glowPaint = Paint()
-      ..color = color.withOpacity(0.45)
+      ..color = color.withValues(alpha: 0.45)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 6
       ..strokeCap = StrokeCap.round

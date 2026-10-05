@@ -38,7 +38,7 @@ class NetworkTile extends StatelessWidget {
           color: selected ? AppColors.surface3 : AppColors.surface2,
           border: Border.all(
               color: selected
-                  ? network.color.withOpacity(0.55)
+                  ? network.color.withValues(alpha: 0.55)
                   : AppColors.border),
           borderRadius: BorderRadius.circular(14),
         ),
