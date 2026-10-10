@@ -113,9 +113,8 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     String? phone,
     String? bio,
   }) async {
-    final identityChanged =
-        (username != null && username != state.username) ||
-            (displayName != null && displayName != state.displayName);
+    final identityChanged = (username != null && username != state.username) ||
+        (displayName != null && displayName != state.displayName);
     state = state.copyWith(
       displayName: displayName,
       username: username,
@@ -136,7 +135,8 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     // (e.g. during sign-up, which isn't wired to the backend yet) there's
     // no session to save it to, so it only lives in this profile state.
     // Errors propagate so the caller can show them.
-    if (identityChanged && _ref.read(appStateProvider).requireValue.isLoggedIn) {
+    if (identityChanged &&
+        _ref.read(appStateProvider).requireValue.isLoggedIn) {
       await _ref
           .read(appStateProvider.notifier)
           .updateUserDetails(username: username, displayName: displayName);
@@ -147,6 +147,6 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
 final userProfileProvider =
     StateNotifierProvider<UserProfileNotifier, UserProfile>((ref) {
   final (username, displayName) = ref.watch(appStateProvider.select(
-      (s) => (s.requireValue.username, s.requireValue.displayName)));
+      (s) => (s.requireValue.localState.username, s.requireValue.displayName)));
   return UserProfileNotifier(ref, username, displayName);
 });

@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import '../../app_routes.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../core/widgets/scorchepay_logo.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
-import 'login_screen.dart';
-import 'signup_screen.dart';
 
 /// Landing screen after onboarding — branches into sign up or log in.
 class WelcomeScreen extends StatelessWidget {
@@ -57,22 +57,14 @@ class WelcomeScreen extends StatelessWidget {
                                           PrimaryButton(
                                             label: 'Create an account',
                                             onPressed: () {
-                                              Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                    builder: (_) =>
-                                                        const SignUpScreen()),
-                                              );
+                                              context.go(AppRoutes.signup);
                                             },
                                           ),
                                           const SizedBox(height: 10),
                                           SecondaryButton(
                                             label: 'I already have an account',
                                             onPressed: () {
-                                              Navigator.of(context).push(
-                                                MaterialPageRoute(
-                                                    builder: (_) =>
-                                                        const LoginScreen()),
-                                              );
+                                              context.go(AppRoutes.login);
                                             },
                                           ),
                                           const SizedBox(height: 18),

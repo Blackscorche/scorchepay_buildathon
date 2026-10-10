@@ -18,7 +18,7 @@ class BackendService {
 
   /// The only account the mock knows about. The login screen pre-fills
   /// this, and an empty username is treated as this account too.
-  static const demoUsername = 'demo';
+  static const demoUsername = 'scorche';
   static const demoPin = '1234';
 
   static const _latency = Duration(milliseconds: 300);
@@ -40,6 +40,7 @@ class BackendService {
     if (pin != demoPin) {
       throw const AuthException('Incorrect PIN. The demo PIN is $demoPin.');
     }
+    _username = name.isEmpty ? demoUsername : name;
     return _demoToken;
   }
 
@@ -54,9 +55,10 @@ class BackendService {
 
     return AppState(
         token: token,
-        username: _username,
         displayName: _displayName,
-        localState: localState);
+        localState: localState.username == _username
+            ? localState
+            : localState.cloneWith(username: _username));
   }
 
   /// Updates the identity of the user behind [token]. Null fields are

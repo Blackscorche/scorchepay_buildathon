@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import '../../state/providers/app_state_notifier.dart';
 import '../../state/services/backend_service.dart';
 import '../../core/widgets/scorch_mascot.dart';
@@ -20,10 +21,17 @@ class LoginScreen extends ConsumerStatefulWidget {
 }
 
 class _LoginScreenState extends ConsumerState<LoginScreen> {
-  final _contactController = TextEditingController();
+  late final TextEditingController _contactController;
   String _pin = '';
   bool _busy = false;
   String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _contactController = TextEditingController(
+        text: ref.read(appStateProvider).requireValue.localState.username);
+  }
 
   @override
   void dispose() {
@@ -46,10 +54,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       await ref
           .read(appStateProvider.notifier)
           .login(_contactController.text, _pin);
-      if (mounted) {
-        Navigator.of(context)
-            .pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
-      }
+      // ScorchePayApp navigates home once the session is signed in.
     } catch (error) {
       if (mounted) {
         setState(() {
@@ -62,15 +67,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
-  /// Back to Welcome (e.g. to create a new account). Welcome is normally
-  /// already underneath — see `openAuthEntry` — but fall back to opening
-  /// it if Login is ever the only route.
+  /// Back to Welcome (e.g. to create a new account). Login is nested
+  /// under Welcome, so this is normally a pop; go() covers the case where
+  /// nothing is underneath.
   void _back() {
-    final navigator = Navigator.of(context);
-    if (navigator.canPop()) {
-      navigator.pop();
+    if (context.canPop()) {
+      context.pop();
     } else {
-      navigator.pushReplacementNamed(AppRoutes.welcome);
+      context.go(AppRoutes.welcome);
     }
   }
 

@@ -19,7 +19,6 @@ const _uuid = Uuid();
 class AppState {
   AppState({
     this.token,
-    required this.username,
     required this.displayName,
     required this.localState,
   });
@@ -27,7 +26,6 @@ class AppState {
   /// Session token — present only while signed in. Persisted in secure
   /// storage by `AppStateNotifier`, never in [LocalAppState].
   final String? token;
-  final String username;
   final String displayName;
   LocalAppState localState;
 
@@ -107,15 +105,13 @@ class AppState {
   AppState clone() {
     return AppState(
       token: token,
-      username: username,
       displayName: displayName,
-      localState: localState.clone(),
+      localState: localState.cloneWith(),
     );
   }
 
   /// State while signed out: device-local data only, no backend data.
   factory AppState.signedOut(LocalAppState local) => AppState(
-        username: '',
         displayName: '',
         localState: local,
       );
@@ -128,7 +124,7 @@ class LocalAppState {
     this.preferredCurrency = 'NGN',
     this.hideBalance = false,
     this.showOnboarding = true,
-    this.hasLoggedInBefore = false,
+    this.username = '',
     required this.fiatBalances,
     required this.cryptoHoldings,
     required this.cryptoPrices,
@@ -143,7 +139,7 @@ class LocalAppState {
   final String preferredCurrency;
   bool hideBalance;
   bool showOnboarding;
-  bool hasLoggedInBefore;
+  String username;
 
   /// Fiat balances by currency code — NGN always exists by default.
   final Map<String, double> fiatBalances;
@@ -178,7 +174,7 @@ class LocalAppState {
         'notifications': notifications.map((e) => e.toJson()).toList(),
         'hideBalance': hideBalance,
         'showOnboarding': showOnboarding,
-        'hasLoggedInBefore': hasLoggedInBefore,
+        'username': username,
       };
 
   factory LocalAppState.fromJson(Map<String, dynamic> json) => LocalAppState(
@@ -213,10 +209,10 @@ class LocalAppState {
             .toList(),
         hideBalance: json['hideBalance'] as bool? ?? false,
         showOnboarding: json['showOnboarding'] as bool? ?? true,
-        hasLoggedInBefore: json['hasLoggedInBefore'] as bool? ?? false,
+        username: json['username'] as String? ?? '',
       );
 
-  LocalAppState clone() {
+  LocalAppState cloneWith({String? username}) {
     return LocalAppState(
       preferredCurrency: preferredCurrency,
       fiatBalances: Map<String, double>.from(fiatBalances),
@@ -230,7 +226,7 @@ class LocalAppState {
       notifications: List<AppNotification>.from(notifications),
       hideBalance: hideBalance,
       showOnboarding: showOnboarding,
-      hasLoggedInBefore: hasLoggedInBefore,
+      username: username ?? this.username,
     );
   }
 

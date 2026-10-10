@@ -4,10 +4,8 @@ import '../../core/widgets/scorch_mascot.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../state/providers/app_state_notifier.dart';
-import '../../state/providers/providers.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
-import '../auth/auth_entry.dart';
 
 class _OnboardingSlide {
   const _OnboardingSlide(
@@ -49,10 +47,8 @@ class _OnboardingScreenState extends ConsumerState<OnboardingScreen> {
   }
 
   void _finish() {
-    var appState = ref.read(appStateProvider.notifier);
-    appState.onCompleteOnboarding();
-    openAuthEntry(Navigator.of(context),
-        returningUser: ref.read(hasLoggedInBeforeProvider));
+    // The router moves on (to login, welcome or home) once this is saved.
+    ref.read(appStateProvider.notifier).onCompleteOnboarding();
   }
 
   @override

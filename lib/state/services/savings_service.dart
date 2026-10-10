@@ -150,7 +150,7 @@ class SavingsService {
     if (member == null || member.hasContributedThisCycle) return;
 
     final amount = g.groupContributionAmount ?? 0;
-    if (memberUsername == s.username) {
+    if (memberUsername == s.localState.username) {
       // The local user's own contribution routes through real funding.
       final result = SmartPayEngine.fundOnly(s,
           title: 'Group savings · ${g.name}',
@@ -175,7 +175,7 @@ class SavingsService {
       orElse: () => members[g.groupCycleIndex % members.length],
     );
     final total = g.current;
-    if (recipient.username == s.username) {
+    if (recipient.username == s.localState.username) {
       LedgerService.credit(
         s,
         currency: g.currency,

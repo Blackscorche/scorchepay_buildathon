@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../app_routes.dart';
 import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
@@ -12,8 +13,9 @@ class BiometricPromptScreen extends StatelessWidget {
   const BiometricPromptScreen({super.key});
 
   void _proceed(BuildContext context) {
-    Navigator.of(context)
-        .pushNamedAndRemoveUntil(AppRoutes.home, (route) => false);
+    // Replaces the whole sign-up flow. The router sends signed-out users
+    // on to login, then back to home once they've signed in.
+    context.go(AppRoutes.home);
   }
 
   @override

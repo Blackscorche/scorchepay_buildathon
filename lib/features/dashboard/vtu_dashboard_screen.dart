@@ -17,7 +17,6 @@ import '../../theme/app_text_styles.dart';
 import '../bills/airtime_screen.dart';
 import '../bills/bill_payment_screen.dart';
 import '../bills/data_screen.dart';
-import '../auth/auth_entry.dart';
 
 double _parseHolding(String holding) =>
     double.tryParse(holding.replaceAll(',', '')) ?? 0;
@@ -98,16 +97,14 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
     );
     if (confirmed != true || !mounted) return;
 
-    final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
     try {
+      // ScorchePayApp navigates to the signed-out entry point.
       await ref.read(appStateProvider.notifier).logout();
     } catch (_) {
       messenger.showSnackBar(
           const SnackBar(content: Text('Could not log out. Please try again.')));
-      return;
     }
-    openAuthEntry(navigator, returningUser: true);
   }
 
   double get _totalValue => _assets.fold<double>(

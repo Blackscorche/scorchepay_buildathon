@@ -14,8 +14,8 @@ final savingsGoalsProvider = Provider(
     (ref) => ref.watch(appStateProvider).requireValue.localState.savingsGoals);
 final automationRulesProvider = Provider((ref) =>
     ref.watch(appStateProvider).requireValue.localState.automationRules);
-final notificationsProvider = Provider((ref) =>
-    ref.watch(appStateProvider).requireValue.localState.notifications);
+final notificationsProvider = Provider(
+    (ref) => ref.watch(appStateProvider).requireValue.localState.notifications);
 final unreadNotificationCountProvider = Provider<int>(
     (ref) => ref.watch(notificationsProvider).where((n) => !n.read).length);
 final showOnboardingProvider = Provider<bool>((ref) =>
@@ -23,4 +23,4 @@ final showOnboardingProvider = Provider<bool>((ref) =>
 
 final hasLoggedInBeforeProvider = Provider<bool>((ref) => ref.watch(
     appStateProvider
-        .select((s) => s.requireValue.localState.hasLoggedInBefore)));
+        .select((s) => s.requireValue.localState.username.isNotEmpty)));

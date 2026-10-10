@@ -28,6 +28,7 @@ final backendServiceProvider =
     Provider<BackendService>((ref) => const BackendService());
 
 final secureStorageProvider = Provider<FlutterSecureStorage>(
+  // useDataProtectionKeyChain can be used with MacOsOptions for testing
   (ref) => const FlutterSecureStorage(),
 );
 
@@ -35,9 +36,8 @@ final secureStorageProvider = Provider<FlutterSecureStorage>(
 /// [login] / [logout]) plus every user-facing action on app state.
 ///
 /// [build] restores the stored session, so this is loading until that's
-/// done — `await ref.read(appStateProvider.future)` to wait for it
-/// (SplashScreen does). Everything else reads it through
-/// `requireValue`.
+/// done; ScorchePayApp shows the splash until then. Everything else reads
+/// it through `requireValue`.
 final appStateProvider =
     AsyncNotifierProvider<AppStateNotifier, AppState>(AppStateNotifier.new);
 
@@ -64,32 +64,36 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
 
   @override
   Future<AppState> build() async {
+    // Failures propagate: the provider goes into AsyncError (keeping the
+    // previous value on a reload), and ScorchePayApp shows the error and
+    // decides whether to recover via [continueSignedOut].
     final local = await _store.load();
+    final token = await _secure.read(key: _tokenKey);
+    if (token == null) return AppState.signedOut(local);
 
-    String? token;
     try {
-      token = await _secure.read(key: _tokenKey);
-    } catch (_) {
-      // Unreadable keychain/keystore — treat as signed out.
-    }
-
-    if (token != null) {
-      try {
-        final restored = await _backend.getUser(token, local);
-        // A timer, not a direct call or microtask: refreshFxRates reads
-        // `state`, which only holds this result once Riverpod has
-        // published it after build() returns.
-        unawaited(Future(refreshFxRates));
-        return restored;
-      } on AuthException {
-        // Token rejected: forget it.
-        await _deleteToken();
-      } catch (_) {
-        // Anything else (e.g. offline): keep the token for next launch,
-        // but continue signed out for now.
+      final restored = await _backend.getUser(token, local);
+      if (restored.localState != local) {
+        // Persist parts of the state (like username) gotten from the backend but used on the client.
+        await _store.save(restored.localState);
       }
+
+      // Run after refreshing state
+      unawaited(Future(_refreshFxRates));
+      return restored;
+    } on AuthException {
+      // Token rejected: forget it. Any other error (e.g. offline) keeps
+      // the token, so the next launch or reload can try again.
+      await _deleteToken();
+      rethrow;
     }
-    return AppState.signedOut(local);
+  }
+
+  /// Recovers from a failed [build] by continuing signed out on the
+  /// device's data, so the app stays usable. Called by ScorchePayApp
+  /// after it has shown the error.
+  Future<void> continueSignedOut() async {
+    state = AsyncData(AppState.signedOut(await _store.load()));
   }
 
   Future<void> _reload() async {
@@ -101,14 +105,23 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
     final token =
         await _backend.login(username, pin); // bad PIN still throws here
     await _secure.write(key: _tokenKey, value: token);
-    _appState.localState.hasLoggedInBefore = true;
-    await _commit(); // save it to disk so build() sees it
-    await _reload();
+    try {
+      await _reload(); // throws if build() fails
+    } on AuthException {
+      rethrow; // build() already deleted the rejected token
+    } catch (_) {
+      // The user sees a failed login, so don't keep the token around to
+      // sign them in silently on the next launch.
+      await _deleteToken();
+      throw const AuthException("Couldn't reach the server. Please try again.");
+    }
   }
 
   Future<void> logout() async {
     await _deleteToken();
-    await _reload();
+    // Not _reload(): signing out needs no backend, and a failed build()
+    // here would leave the old signed-in value in place.
+    await continueSignedOut();
   }
 
   Future<void> updateUserDetails(
@@ -131,7 +144,7 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
   /// already holds. Falls back silently to the existing bundled rates
   /// on any failure (offline, rate-limited), same pattern as
   /// [CoinGeckoService].
-  Future<void> refreshFxRates() async {
+  Future<void> _refreshFxRates() async {
     try {
       if (_appState.localState.fxRatesToNgn.isEmpty) return;
       final live = await FxRateService.getRatesToNgn();
