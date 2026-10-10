@@ -18,14 +18,14 @@ class AutomationService {
   AutomationService._();
 
   static AutomationRule? find(AppState s, String id) {
-    for (final r in s.automationRules) {
+    for (final r in s.localState.automationRules) {
       if (r.id == id) return r;
     }
     return null;
   }
 
   static String create(AppState s, AutomationRule rule) {
-    s.automationRules.insert(0, rule);
+    s.localState.automationRules.insert(0, rule);
     _notify(s, 'Automation rule created', '"${rule.name}" is now active.');
     return rule.id;
   }
@@ -43,7 +43,7 @@ class AutomationService {
   }
 
   static void delete(AppState s, String id) {
-    s.automationRules.removeWhere((r) => r.id == id);
+    s.localState.automationRules.removeWhere((r) => r.id == id);
   }
 
   /// Scans every active, schedule-triggered rule and runs any whose
@@ -51,7 +51,7 @@ class AutomationService {
   /// since there's no real backend cron in this prototype.
   static Future<void> runDueRules(AppState s) async {
     final now = DateTime.now();
-    for (final r in s.automationRules) {
+    for (final r in s.localState.automationRules) {
       if (r.status != RuleStatus.active) continue;
       if (r.triggerType != TriggerType.schedule) continue;
       if (r.nextRunAt == null || now.isBefore(r.nextRunAt!)) continue;
@@ -132,7 +132,7 @@ class AutomationService {
       _recordFailure(s, r, result.message ?? 'Insufficient funds');
       return;
     }
-    for (final g in s.savingsGoals) {
+    for (final g in s.localState.savingsGoals) {
       if (g.id == r.savingsGoalId) g.current += r.amount;
     }
     _recordSuccess(s, r, '${r.amount.toStringAsFixed(2)} ${r.currency} saved');
@@ -206,7 +206,7 @@ class AutomationService {
   }
 
   static void _notify(AppState s, String title, String body) {
-    s.notifications.insert(
+    s.localState.notifications.insert(
         0,
         AppNotification(
             id: _uuid.v4(),

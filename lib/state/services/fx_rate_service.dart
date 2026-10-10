@@ -13,7 +13,7 @@ class FxRateService {
   static DateTime? _cachedAt;
 
   /// Every rate as "1 unit of [code] in NGN" — the same shape
-  /// [AppState.fxRatesToNgn] already expects, so this is a drop-in
+  /// [LocalAppState.fxRatesToNgn] already expects, so this is a drop-in
   /// refresh rather than a schema change.
   static Future<Map<String, double>> getRatesToNgn() async {
     final cached = _cache;

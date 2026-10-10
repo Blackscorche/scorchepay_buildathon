@@ -3,18 +3,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_icons.dart';
 import '../../core/widgets/app_card.dart';
+import '../../core/widgets/buttons.dart';
 import '../../core/widgets/icon_action_button.dart';
 import '../../core/widgets/section_title.dart';
 import '../../core/widgets/token_badge.dart';
 import '../../data/coingecko_service.dart';
 import '../../data/mock_data.dart';
 import '../../data/models.dart';
-import '../../state/providers/providers.dart';
+import '../../state/providers/app_state_notifier.dart';
+import '../../state/providers/profile_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import '../bills/airtime_screen.dart';
 import '../bills/bill_payment_screen.dart';
 import '../bills/data_screen.dart';
+import '../auth/auth_entry.dart';
 
 double _parseHolding(String holding) =>
     double.tryParse(holding.replaceAll(',', '')) ?? 0;
@@ -75,6 +78,38 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
     }
   }
 
+  Future<void> _logout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Log out?'),
+        content: const Text('You will need your PIN to log back in.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Log out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await ref.read(appStateProvider.notifier).logout();
+    } catch (_) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Could not log out. Please try again.')));
+      return;
+    }
+    openAuthEntry(navigator, returningUser: true);
+  }
+
   double get _totalValue => _assets.fold<double>(
       0, (sum, a) => sum + _parseHolding(a.holding) * a.price);
 
@@ -93,7 +128,10 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('Hello, ${profile.displayName}',
+                      Text(
+                          profile.displayName.isEmpty
+                              ? 'Hello'
+                              : 'Hello, ${profile.displayName}',
                           style: AppText.pageTitle),
                       const SizedBox(height: 2),
                       Text('Top up and check your crypto balance',
@@ -101,6 +139,7 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                     ],
                   ),
                 ),
+                IconCircleButton(icon: AppIcons.logout, onTap: _logout),
               ],
             ),
             const SizedBox(height: 22),

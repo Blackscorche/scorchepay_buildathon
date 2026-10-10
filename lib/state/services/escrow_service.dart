@@ -28,7 +28,7 @@ class EscrowService {
   static const reviewWindow = Duration(seconds: 90);
 
   static EscrowContract? find(AppState s, String id) {
-    for (final e in s.escrows) {
+    for (final e in s.localState.escrows) {
       if (e.id == id) return e;
     }
     return null;
@@ -64,7 +64,7 @@ class EscrowService {
     );
     contract.log('You',
         'Escrow created — ${role == EscrowRole.buyer ? 'you are the buyer' : 'you are the seller'}');
-    s.escrows.insert(0, contract);
+    s.localState.escrows.insert(0, contract);
     _notify(s, 'Escrow created',
         '"$description" with $counterpartyName is awaiting acceptance.');
     return contract.id;
@@ -187,7 +187,7 @@ class EscrowService {
   /// milestone whose buyer review window has passed with no dispute.
   static void checkExpiredReviewWindows(AppState s) {
     final now = DateTime.now();
-    for (final e in s.escrows) {
+    for (final e in s.localState.escrows) {
       if (e.status != EscrowStatus.funded) continue;
       for (final m in e.milestones) {
         if (m.status == MilestoneStatus.evidenceSubmitted &&
@@ -290,7 +290,7 @@ class EscrowService {
   }
 
   static void _notify(AppState s, String title, String body) {
-    s.notifications.insert(
+    s.localState.notifications.insert(
         0,
         AppNotification(
             id: _uuid.v4(),

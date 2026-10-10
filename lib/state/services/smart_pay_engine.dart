@@ -84,7 +84,7 @@ class SmartPayEngine {
                 nativeEquivalent: take,
                 isStablecoin: _stablecoins.contains(fixedSourceCurrency),
                 isVolatileCrypto:
-                    s.cryptoPrices.containsKey(fixedSourceCurrency) &&
+                    s.localState.cryptoPrices.containsKey(fixedSourceCurrency) &&
                         !_stablecoins.contains(fixedSourceCurrency),
               )
             ]
@@ -97,16 +97,16 @@ class SmartPayEngine {
     }
 
     final candidates = <String>[];
-    if (s.fiatBalances.containsKey(nativeCurrency)) {
+    if (s.localState.fiatBalances.containsKey(nativeCurrency)) {
       candidates.add(nativeCurrency);
     }
-    for (final c in s.cryptoHoldings.keys) {
+    for (final c in s.localState.cryptoHoldings.keys) {
       if (_stablecoins.contains(c)) candidates.add(c);
     }
-    for (final c in s.fiatBalances.keys) {
+    for (final c in s.localState.fiatBalances.keys) {
       if (c != nativeCurrency) candidates.add(c);
     }
-    for (final c in s.cryptoHoldings.keys) {
+    for (final c in s.localState.cryptoHoldings.keys) {
       if (!_stablecoins.contains(c)) candidates.add(c);
     }
 
@@ -125,7 +125,7 @@ class SmartPayEngine {
         sourceAmount: takeSource,
         nativeEquivalent: takeNative,
         isStablecoin: _stablecoins.contains(currency),
-        isVolatileCrypto: s.cryptoPrices.containsKey(currency) &&
+        isVolatileCrypto: s.localState.cryptoPrices.containsKey(currency) &&
             !_stablecoins.contains(currency),
       ));
       remaining -= takeNative;

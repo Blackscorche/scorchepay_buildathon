@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'app_state_notifier.dart';
 
 class UserProfile {
   const UserProfile({
@@ -23,7 +24,8 @@ class UserProfile {
   final String tier;
   final String kycStatus;
 
-  File? get photoFile => photoPath != null && photoPath!.isNotEmpty ? File(photoPath!) : null;
+  File? get photoFile =>
+      photoPath != null && photoPath!.isNotEmpty ? File(photoPath!) : null;
 
   UserProfile copyWith({
     String? username,
@@ -50,10 +52,15 @@ class UserProfile {
 }
 
 class UserProfileNotifier extends StateNotifier<UserProfile> {
-  UserProfileNotifier()
-      : super(const UserProfile(
-          username: 'scorche',
-          displayName: 'Scorche',
+  UserProfileNotifier(
+    this._ref,
+    String username,
+    String displayName,
+  ) : super(UserProfile(
+          // Identity comes from the backend user via AppState — see
+          // [userProfileProvider].
+          username: username,
+          displayName: displayName,
           email: 'issaabu399@gmail.com',
           phone: '+234 810 456 2311',
           bio: 'Building on ScorchePay · Money OS',
@@ -63,10 +70,9 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
         )) {
     _loadFromPrefs();
   }
-
+  final Ref _ref;
   static const _keyPhoto = 'user_profile_photo_path';
-  static const _keyDisplayName = 'user_profile_display_name';
-  static const _keyUsername = 'user_profile_username';
+
   static const _keyEmail = 'user_profile_email';
   static const _keyPhone = 'user_profile_phone';
   static const _keyBio = 'user_profile_bio';
@@ -75,16 +81,12 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     try {
       final prefs = await SharedPreferences.getInstance();
       final photo = prefs.getString(_keyPhoto);
-      final name = prefs.getString(_keyDisplayName);
-      final uname = prefs.getString(_keyUsername);
       final email = prefs.getString(_keyEmail);
       final phone = prefs.getString(_keyPhone);
       final bio = prefs.getString(_keyBio);
 
       state = state.copyWith(
         photoPath: photo,
-        displayName: name,
-        username: uname,
         email: email,
         phone: phone,
         bio: bio,
@@ -111,6 +113,9 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     String? phone,
     String? bio,
   }) async {
+    final identityChanged =
+        (username != null && username != state.username) ||
+            (displayName != null && displayName != state.displayName);
     state = state.copyWith(
       displayName: displayName,
       username: username,
@@ -118,17 +123,30 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
       phone: phone,
       bio: bio,
     );
+
+    // Device-only fields: best-effort, independent of the backend call.
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (displayName != null) await prefs.setString(_keyDisplayName, displayName);
-      if (username != null) await prefs.setString(_keyUsername, username);
       if (email != null) await prefs.setString(_keyEmail, email);
       if (phone != null) await prefs.setString(_keyPhone, phone);
       if (bio != null) await prefs.setString(_keyBio, bio);
     } catch (_) {}
+
+    // Identity is owned by the backend (via app state). While signed out
+    // (e.g. during sign-up, which isn't wired to the backend yet) there's
+    // no session to save it to, so it only lives in this profile state.
+    // Errors propagate so the caller can show them.
+    if (identityChanged && _ref.read(appStateProvider).requireValue.isLoggedIn) {
+      await _ref
+          .read(appStateProvider.notifier)
+          .updateUserDetails(username: username, displayName: displayName);
+    }
   }
 }
 
-final userProfileProvider = StateNotifierProvider<UserProfileNotifier, UserProfile>((ref) {
-  return UserProfileNotifier();
+final userProfileProvider =
+    StateNotifierProvider<UserProfileNotifier, UserProfile>((ref) {
+  final (username, displayName) = ref.watch(appStateProvider.select(
+      (s) => (s.requireValue.username, s.requireValue.displayName)));
+  return UserProfileNotifier(ref, username, displayName);
 });

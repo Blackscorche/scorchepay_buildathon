@@ -1,27 +1,33 @@
 import 'dart:convert';
+
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import '../providers/app_state.dart';
 
-/// Persists [AppState] to on-device storage as JSON. Any failure to read
-/// or parse (first run, corrupted data, a schema change) falls back to
-/// [AppState.seed] rather than crashing — this is a local prototype, not
-/// a source of truth users can lose real money over.
+final localStoreProvider = Provider<LocalStore>((ref) => LocalStore());
+
+/// Persists the device-local slice of [AppState] ([LocalAppState]) as JSON.
+/// Backend data is never written here. Any failure to read or parse
+/// (first run, corrupted data, a schema change) falls back to defaults
+/// rather than crashing.
 class LocalStore {
+  // Same key as before: older blobs that also held wallet data still
+  // parse (extra keys are ignored) and are trimmed on the next save.
   static const _key = 'scorchepay_app_state_v1';
 
-  Future<AppState> load() async {
+  Future<LocalAppState> load() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final raw = prefs.getString(_key);
-      if (raw == null) return AppState.seed();
-      final json = jsonDecode(raw) as Map<String, dynamic>;
-      return AppState.fromJson(json);
+      if (raw == null) return LocalAppState.seed();
+      return LocalAppState.fromJson(jsonDecode(raw) as Map<String, dynamic>);
     } catch (_) {
-      return AppState.seed();
+      return LocalAppState.seed();
     }
   }
 
-  Future<void> save(AppState state) async {
+  Future<void> save(LocalAppState state) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_key, jsonEncode(state.toJson()));

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:uuid/uuid.dart';
 
 import '../models/app_notification.dart';
@@ -7,6 +10,7 @@ import '../models/escrow.dart';
 import '../models/ledger_entry.dart';
 import '../models/savings.dart';
 import '../services/automation_service.dart';
+import '../services/backend_service.dart';
 import '../services/escrow_service.dart';
 import '../services/fx_rate_service.dart';
 import '../services/ledger_service.dart';
@@ -16,23 +20,110 @@ import '../services/simulated_providers.dart';
 import '../services/smart_pay_engine.dart';
 import 'app_state.dart';
 
+// ---------------------------------------------------------------------
+// Session and app-state providers
+// ---------------------------------------------------------------------
+
+final backendServiceProvider =
+    Provider<BackendService>((ref) => const BackendService());
+
+final secureStorageProvider = Provider<FlutterSecureStorage>(
+  (ref) => const FlutterSecureStorage(),
+);
+
+/// The app's one state notifier: the session (restored on startup, then
+/// [login] / [logout]) plus every user-facing action on app state.
+///
+/// [build] restores the stored session, so this is loading until that's
+/// done — `await ref.read(appStateProvider.future)` to wait for it
+/// (SplashScreen does). Everything else reads it through
+/// `requireValue`.
+final appStateProvider =
+    AsyncNotifierProvider<AppStateNotifier, AppState>(AppStateNotifier.new);
+
 const _uuid = Uuid();
 
-/// The single write path into [AppState]. Every user-facing action is
-/// one method here: mutate the state's internals via the relevant
-/// service, then commit with `state = state.clone()` (guarantees
-/// Riverpod notifies listeners regardless of the mutable-internals
-/// pattern) and persist to disk.
-class AppStateNotifier extends StateNotifier<AppState> {
-  AppStateNotifier(this._store) : super(AppState.seed()) {
-    _load();
+/// Every action follows one pattern: mutate the current state's
+/// internals via the relevant service, then [_commit], which publishes a
+/// clone (so Riverpod always notifies, despite the mutable internals) and
+/// persists the device-local slice to disk. Backend data — identity and
+/// the token — is never written to [LocalStore].
+class AppStateNotifier extends AsyncNotifier<AppState> {
+  static const _tokenKey = 'auth_token';
+
+  BackendService get _backend => ref.read(backendServiceProvider);
+  FlutterSecureStorage get _secure => ref.read(secureStorageProvider);
+  LocalStore get _store => ref.read(localStoreProvider);
+
+  /// The current state. Actions only run once [build] has completed.
+  AppState get _appState => state.requireValue;
+
+  // ---------------------------------------------------------------------
+  // Session
+  // ---------------------------------------------------------------------
+
+  @override
+  Future<AppState> build() async {
+    final local = await _store.load();
+
+    String? token;
+    try {
+      token = await _secure.read(key: _tokenKey);
+    } catch (_) {
+      // Unreadable keychain/keystore — treat as signed out.
+    }
+
+    if (token != null) {
+      try {
+        final restored = await _backend.getUser(token, local);
+        // A timer, not a direct call or microtask: refreshFxRates reads
+        // `state`, which only holds this result once Riverpod has
+        // published it after build() returns.
+        unawaited(Future(refreshFxRates));
+        return restored;
+      } on AuthException {
+        // Token rejected: forget it.
+        await _deleteToken();
+      } catch (_) {
+        // Anything else (e.g. offline): keep the token for next launch,
+        // but continue signed out for now.
+      }
+    }
+    return AppState.signedOut(local);
   }
 
-  final LocalStore _store;
+  Future<void> _reload() async {
+    ref.invalidateSelf();
+    await future;
+  }
 
-  Future<void> _load() async {
-    state = await _store.load();
-    await refreshFxRates();
+  Future<void> login(String username, String pin) async {
+    final token =
+        await _backend.login(username, pin); // bad PIN still throws here
+    await _secure.write(key: _tokenKey, value: token);
+    _appState.localState.hasLoggedInBefore = true;
+    await _commit(); // save it to disk so build() sees it
+    await _reload();
+  }
+
+  Future<void> logout() async {
+    await _deleteToken();
+    await _reload();
+  }
+
+  Future<void> updateUserDetails(
+      {String? username, String? displayName}) async {
+    final token = _appState.token;
+    if (token == null) throw StateError('Not signed in.');
+    await _backend.updateUserDetails(token,
+        username: username, displayName: displayName);
+    await _reload();
+  }
+
+  Future<void> _deleteToken() async {
+    try {
+      await _secure.delete(key: _tokenKey);
+    } catch (_) {}
   }
 
   /// Pulls live NGN-pivot FX rates (§5 of the spec — real rates, not a
@@ -42,9 +133,12 @@ class AppStateNotifier extends StateNotifier<AppState> {
   /// [CoinGeckoService].
   Future<void> refreshFxRates() async {
     try {
+      if (_appState.localState.fxRatesToNgn.isEmpty) return;
       final live = await FxRateService.getRatesToNgn();
-      for (final code in state.fxRatesToNgn.keys.toList()) {
-        if (live.containsKey(code)) state.fxRatesToNgn[code] = live[code]!;
+      for (final code in _appState.localState.fxRatesToNgn.keys.toList()) {
+        if (live.containsKey(code)) {
+          _appState.localState.fxRatesToNgn[code] = live[code]!;
+        }
       }
       await _commit();
     } catch (_) {
@@ -53,8 +147,9 @@ class AppStateNotifier extends StateNotifier<AppState> {
   }
 
   Future<void> _commit() async {
-    state = state.clone();
-    await _store.save(state);
+    state = AsyncData(_appState.clone());
+    // Only the device-local slice is written (see LocalStore).
+    await _store.save(_appState.localState);
   }
 
   // ---------------------------------------------------------------------
@@ -68,7 +163,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String currency,
       String? fixedSourceCurrency}) async {
     try {
-      final result = await SmartPayEngine.payBill(state,
+      final result = await SmartPayEngine.payBill(_appState,
           biller: biller,
           customerId: customerId,
           amount: amount,
@@ -89,7 +184,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       {required String nativeCurrency,
       required double nativeAmount,
       String? fixedSourceCurrency}) {
-    return SmartPayEngine.planPayment(state,
+    return SmartPayEngine.planPayment(_appState,
         nativeCurrency: nativeCurrency,
         nativeAmount: nativeAmount,
         fixedSourceCurrency: fixedSourceCurrency);
@@ -107,7 +202,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required double amount,
       String? note}) async {
     try {
-      LedgerService.internalTransferOut(state,
+      LedgerService.internalTransferOut(_appState,
           currency: currency,
           amount: amount,
           recipientUsername: toUsername,
@@ -126,7 +221,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       {required String currency,
       required double amount,
       required String toDisplayName}) async {
-    state.notifications.insert(
+    _appState.localState.notifications.insert(
         0,
         AppNotification(
             id: _uuid.v4(),
@@ -142,7 +237,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String bankName,
       required String accountName}) async {
     try {
-      final entry = LedgerService.debit(state,
+      final entry = LedgerService.debit(_appState,
           currency: 'NGN',
           amount: amount,
           title: 'Sent to $accountName',
@@ -151,8 +246,8 @@ class AppStateNotifier extends StateNotifier<AppState> {
       final result = await SimulatedProviders.bankTransfer(
           amount: amount, bankName: bankName);
       if (result.failed) {
-        LedgerService.refund(state, entry, reasonSuffix: result.reason);
-        state.notifications.insert(
+        LedgerService.refund(_appState, entry, reasonSuffix: result.reason);
+        _appState.localState.notifications.insert(
             0,
             AppNotification(
                 id: _uuid.v4(),
@@ -162,7 +257,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
                 body:
                     '${result.reason} — ${amount.toStringAsFixed(2)} NGN refunded.'));
       } else {
-        state.notifications.insert(
+        _appState.localState.notifications.insert(
             0,
             AppNotification(
                 id: _uuid.v4(),
@@ -189,7 +284,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required double amount,
       required String fundingSource}) async {
     try {
-      final entry = LedgerService.debit(state,
+      final entry = LedgerService.debit(_appState,
           currency: fundingSource,
           amount: amount,
           title: 'Buy $asset',
@@ -198,12 +293,12 @@ class AppStateNotifier extends StateNotifier<AppState> {
       final result =
           await SimulatedProviders.executeTrade(asset: asset, amount: amount);
       if (result.failed) {
-        LedgerService.refund(state, entry, reasonSuffix: result.reason);
+        LedgerService.refund(_appState, entry, reasonSuffix: result.reason);
       } else {
-        final price = state.cryptoPrices[asset] ?? 1;
-        final usdValue = state.convert(amount, fundingSource, 'USD');
+        final price = _appState.localState.cryptoPrices[asset] ?? 1;
+        final usdValue = _appState.convert(amount, fundingSource, 'USD');
         final qty = usdValue / price;
-        LedgerService.credit(state,
+        LedgerService.credit(_appState,
             currency: asset,
             amount: qty,
             title: 'Bought $asset',
@@ -223,7 +318,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required double quantity,
       required String payoutCurrency}) async {
     try {
-      final entry = LedgerService.debit(state,
+      final entry = LedgerService.debit(_appState,
           currency: asset,
           amount: quantity,
           title: 'Sell $asset',
@@ -232,11 +327,12 @@ class AppStateNotifier extends StateNotifier<AppState> {
       final result =
           await SimulatedProviders.executeTrade(asset: asset, amount: quantity);
       if (result.failed) {
-        LedgerService.refund(state, entry, reasonSuffix: result.reason);
+        LedgerService.refund(_appState, entry, reasonSuffix: result.reason);
       } else {
-        final usdValue = quantity * (state.cryptoPrices[asset] ?? 1);
-        final payout = state.convert(usdValue, 'USD', payoutCurrency);
-        LedgerService.credit(state,
+        final usdValue =
+            quantity * (_appState.localState.cryptoPrices[asset] ?? 1);
+        final payout = _appState.convert(usdValue, 'USD', payoutCurrency);
+        LedgerService.credit(_appState,
             currency: payoutCurrency,
             amount: payout,
             title: 'Sold $asset',
@@ -256,7 +352,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String to,
       required double amount}) async {
     try {
-      final entry = LedgerService.debit(state,
+      final entry = LedgerService.debit(_appState,
           currency: from,
           amount: amount,
           title: 'Swap $from → $to',
@@ -265,10 +361,10 @@ class AppStateNotifier extends StateNotifier<AppState> {
       final result =
           await SimulatedProviders.executeTrade(asset: from, amount: amount);
       if (result.failed) {
-        LedgerService.refund(state, entry, reasonSuffix: result.reason);
+        LedgerService.refund(_appState, entry, reasonSuffix: result.reason);
       } else {
-        final converted = state.convert(amount, from, to);
-        LedgerService.credit(state,
+        final converted = _appState.convert(amount, from, to);
+        LedgerService.credit(_appState,
             currency: to,
             amount: converted,
             title: 'Swapped to $to',
@@ -289,7 +385,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String network,
       required String address}) async {
     try {
-      LedgerService.debit(state,
+      LedgerService.debit(_appState,
           currency: asset,
           amount: amount,
           title: 'Withdraw $asset',
@@ -298,7 +394,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
           meta: {'network': network, 'address': address});
       final result = await SimulatedProviders.broadcastWithdrawal(
           asset: asset, network: network);
-      state.notifications.insert(
+      _appState.localState.notifications.insert(
           0,
           AppNotification(
               id: _uuid.v4(),
@@ -319,7 +415,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       required String corridor,
       required String recipientName}) async {
     try {
-      final entry = LedgerService.debit(state,
+      final entry = LedgerService.debit(_appState,
           currency: 'NGN',
           amount: amount,
           title: 'Cross-border to $recipientName',
@@ -328,7 +424,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
       final result = await SimulatedProviders.crossBorderTransfer(
           amount: amount, corridor: corridor);
       if (result.failed) {
-        LedgerService.refund(state, entry, reasonSuffix: result.reason);
+        LedgerService.refund(_appState, entry, reasonSuffix: result.reason);
       }
       await _commit();
       return result;
@@ -353,14 +449,14 @@ class AppStateNotifier extends StateNotifier<AppState> {
         asset: brand, amount: faceValueUsd);
     if (result.failed) return result;
     LedgerService.credit(
-      state,
+      _appState,
       currency: 'NGN',
       amount: payoutNaira,
       title: 'Gift card exchanged — $brand',
       subtitle: '\$${faceValueUsd.toStringAsFixed(0)} card',
       category: LedgerCategory.bill,
     );
-    state.notifications.insert(
+    _appState.localState.notifications.insert(
         0,
         AppNotification(
             id: _uuid.v4(),
@@ -386,7 +482,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
     required String currency,
     required List<EscrowMilestone> milestones,
   }) async {
-    final id = EscrowService.create(state,
+    final id = EscrowService.create(_appState,
         escrowType: escrowType,
         counterpartyUsername: counterpartyUsername,
         counterpartyName: counterpartyName,
@@ -399,17 +495,17 @@ class AppStateNotifier extends StateNotifier<AppState> {
   }
 
   Future<void> respondToEscrow(String escrowId, {required bool accept}) async {
-    EscrowService.counterpartyRespond(state, escrowId, accept: accept);
+    EscrowService.counterpartyRespond(_appState, escrowId, accept: accept);
     await _commit();
   }
 
   Future<SmartPayResult> fundEscrow(String escrowId) async {
     try {
-      final result = EscrowService.fund(state, escrowId);
+      final result = EscrowService.fund(_appState, escrowId);
       await _commit();
       return result;
     } on InsufficientFundsException catch (ex) {
-      final e = EscrowService.find(state, escrowId);
+      final e = EscrowService.find(_appState, escrowId);
       return SmartPayResult.insufficientFunds(FundingPlan(
           nativeCurrency: e?.currency ?? '',
           nativeAmount: e?.totalAmount ?? 0,
@@ -419,42 +515,44 @@ class AppStateNotifier extends StateNotifier<AppState> {
   }
 
   Future<void> simulateCounterpartyFundEscrow(String escrowId) async {
-    EscrowService.simulateCounterpartyFund(state, escrowId);
+    EscrowService.simulateCounterpartyFund(_appState, escrowId);
     await _commit();
   }
 
   Future<void> submitEscrowEvidence(
       String escrowId, String milestoneId, String note,
       {bool bySimulatedCounterparty = false}) async {
-    EscrowService.submitEvidence(state, escrowId, milestoneId, note,
+    EscrowService.submitEvidence(_appState, escrowId, milestoneId, note,
         bySimulatedCounterparty: bySimulatedCounterparty);
     await _commit();
   }
 
   Future<void> releaseEscrowMilestone(
       String escrowId, String milestoneId) async {
-    EscrowService.release(state, escrowId, milestoneId);
+    EscrowService.release(_appState, escrowId, milestoneId);
     await _commit();
   }
 
   Future<void> raiseEscrowDispute(
       String escrowId, String milestoneId, String reason,
       {bool bySimulatedCounterparty = false}) async {
-    EscrowService.raiseDispute(state, escrowId, milestoneId, reason,
+    EscrowService.raiseDispute(_appState, escrowId, milestoneId, reason,
         bySimulatedCounterparty: bySimulatedCounterparty);
     await _commit();
   }
 
   Future<void> resolveEscrowDispute(
       String escrowId, String milestoneId, DisputeResolution resolution) async {
-    EscrowService.resolveDispute(state, escrowId, milestoneId, resolution);
+    EscrowService.resolveDispute(_appState, escrowId, milestoneId, resolution);
     await _commit();
   }
 
   Future<void> checkExpiredReviewWindows() async {
-    final before = state.escrows.map((e) => e.timeline.length).toList();
-    EscrowService.checkExpiredReviewWindows(state);
-    final after = state.escrows.map((e) => e.timeline.length).toList();
+    final before =
+        _appState.localState.escrows.map((e) => e.timeline.length).toList();
+    EscrowService.checkExpiredReviewWindows(_appState);
+    final after =
+        _appState.localState.escrows.map((e) => e.timeline.length).toList();
     if (before.toString() != after.toString()) await _commit();
   }
 
@@ -463,7 +561,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
   // ---------------------------------------------------------------------
 
   Future<String> createSavingsGoal(SavingsGoal goal) async {
-    final id = SavingsService.create(state, goal);
+    final id = SavingsService.create(_appState, goal);
     await _commit();
     return id;
   }
@@ -471,7 +569,7 @@ class AppStateNotifier extends StateNotifier<AppState> {
   Future<SmartPayResult> contributeSavings(String goalId, double amount,
       {String? fundingSource}) async {
     try {
-      final result = SavingsService.contribute(state, goalId, amount,
+      final result = SavingsService.contribute(_appState, goalId, amount,
           fundingSource: fundingSource);
       await _commit();
       return result;
@@ -485,19 +583,19 @@ class AppStateNotifier extends StateNotifier<AppState> {
   }
 
   Future<double> withdrawSavings(String goalId, double amount) async {
-    final net = SavingsService.withdraw(state, goalId, amount);
+    final net = SavingsService.withdraw(_appState, goalId, amount);
     await _commit();
     return net;
   }
 
   Future<void> deleteSavingsGoal(String goalId) async {
-    SavingsService.deleteGoal(state, goalId);
+    SavingsService.deleteGoal(_appState, goalId);
     await _commit();
   }
 
   Future<void> groupContribute(String goalId, String memberUsername,
       {bool bySimulated = true}) async {
-    SavingsService.groupContribute(state, goalId, memberUsername,
+    SavingsService.groupContribute(_appState, goalId, memberUsername,
         bySimulated: bySimulated);
     await _commit();
   }
@@ -507,33 +605,33 @@ class AppStateNotifier extends StateNotifier<AppState> {
   // ---------------------------------------------------------------------
 
   Future<String> createAutomationRule(AutomationRule rule) async {
-    final id = AutomationService.create(state, rule);
+    final id = AutomationService.create(_appState, rule);
     await _commit();
     return id;
   }
 
   Future<void> pauseRule(String id) async {
-    AutomationService.pause(state, id);
+    AutomationService.pause(_appState, id);
     await _commit();
   }
 
   Future<void> resumeRule(String id) async {
-    AutomationService.resume(state, id);
+    AutomationService.resume(_appState, id);
     await _commit();
   }
 
   Future<void> deleteRule(String id) async {
-    AutomationService.delete(state, id);
+    AutomationService.delete(_appState, id);
     await _commit();
   }
 
   Future<void> runRuleNow(String id) async {
-    await AutomationService.runRuleNow(state, id);
+    await AutomationService.runRuleNow(_appState, id);
     await _commit();
   }
 
   Future<void> runDueRules() async {
-    await AutomationService.runDueRules(state);
+    await AutomationService.runDueRules(_appState);
     await _commit();
   }
 
@@ -542,24 +640,24 @@ class AppStateNotifier extends StateNotifier<AppState> {
   // ---------------------------------------------------------------------
 
   Future<void> toggleHideBalance() async {
-    state.hideBalance = !state.hideBalance;
+    _appState.localState.hideBalance = !_appState.localState.hideBalance;
     await _commit();
   }
 
   Future<void> onCompleteOnboarding() async {
-    state.showOnboarding = false;
+    _appState.localState.showOnboarding = false;
     await _commit();
   }
 
   Future<void> markNotificationRead(String id) async {
-    for (final n in state.notifications) {
+    for (final n in _appState.localState.notifications) {
       if (n.id == id) n.read = true;
     }
     await _commit();
   }
 
   Future<void> markAllNotificationsRead() async {
-    for (final n in state.notifications) {
+    for (final n in _appState.localState.notifications) {
       n.read = true;
     }
     await _commit();

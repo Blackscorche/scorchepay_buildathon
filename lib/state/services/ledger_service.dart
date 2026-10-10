@@ -25,12 +25,12 @@ class LedgerService {
   LedgerService._();
 
   static bool isCrypto(AppState s, String currency) =>
-      s.cryptoHoldings.containsKey(currency) ||
-      s.cryptoPrices.containsKey(currency);
+      s.localState.cryptoHoldings.containsKey(currency) ||
+      s.localState.cryptoPrices.containsKey(currency);
 
   static double balanceOf(AppState s, String currency) {
-    if (isCrypto(s, currency)) return s.cryptoHoldings[currency] ?? 0;
-    return s.fiatBalances[currency] ?? 0;
+    if (isCrypto(s, currency)) return s.localState.cryptoHoldings[currency] ?? 0;
+    return s.localState.fiatBalances[currency] ?? 0;
   }
 
   /// Debits [amount] of [currency] from the spendable balance. Throws
@@ -53,9 +53,9 @@ class LedgerService {
       throw InsufficientFundsException(currency, amount - have);
     }
     if (isCrypto(s, currency)) {
-      s.cryptoHoldings[currency] = have - amount;
+      s.localState.cryptoHoldings[currency] = have - amount;
     } else {
-      s.fiatBalances[currency] = have - amount;
+      s.localState.fiatBalances[currency] = have - amount;
     }
     final entry = LedgerEntry(
       id: _uuid.v4(),
@@ -69,7 +69,7 @@ class LedgerService {
       counterparty: counterparty,
       meta: meta,
     );
-    s.ledger.insert(0, entry);
+    s.localState.ledger.insert(0, entry);
     return entry;
   }
 
@@ -81,9 +81,9 @@ class LedgerService {
     final currency = originalDebit.currency;
     final amount = -originalDebit.amount; // original was negative
     if (isCrypto(s, currency)) {
-      s.cryptoHoldings[currency] = (s.cryptoHoldings[currency] ?? 0) + amount;
+      s.localState.cryptoHoldings[currency] = (s.localState.cryptoHoldings[currency] ?? 0) + amount;
     } else {
-      s.fiatBalances[currency] = (s.fiatBalances[currency] ?? 0) + amount;
+      s.localState.fiatBalances[currency] = (s.localState.fiatBalances[currency] ?? 0) + amount;
     }
     final entry = LedgerEntry(
       id: _uuid.v4(),
@@ -97,7 +97,7 @@ class LedgerService {
       counterparty: originalDebit.counterparty,
       meta: {'refundOf': originalDebit.id},
     );
-    s.ledger.insert(0, entry);
+    s.localState.ledger.insert(0, entry);
     return entry;
   }
 
@@ -113,9 +113,9 @@ class LedgerService {
     Map<String, dynamic> meta = const {},
   }) {
     if (isCrypto(s, currency)) {
-      s.cryptoHoldings[currency] = (s.cryptoHoldings[currency] ?? 0) + amount;
+      s.localState.cryptoHoldings[currency] = (s.localState.cryptoHoldings[currency] ?? 0) + amount;
     } else {
-      s.fiatBalances[currency] = (s.fiatBalances[currency] ?? 0) + amount;
+      s.localState.fiatBalances[currency] = (s.localState.fiatBalances[currency] ?? 0) + amount;
     }
     final entry = LedgerEntry(
       id: _uuid.v4(),
@@ -129,7 +129,7 @@ class LedgerService {
       counterparty: counterparty,
       meta: meta,
     );
-    s.ledger.insert(0, entry);
+    s.localState.ledger.insert(0, entry);
     return entry;
   }
 

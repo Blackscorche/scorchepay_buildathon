@@ -13,16 +13,122 @@ const _uuid = Uuid();
 /// Deliberate design choice: fields on this class and on the model
 /// objects it holds (`EscrowContract`, `SavingsGoal`, `AutomationRule`)
 /// are mutated in place by the service layer for simplicity — but every
-/// commit inside [AppStateNotifier] re-assigns `state` to a *new*
-/// [AppState] instance via [clone]. That guarantees Riverpod's listener
-/// notification fires on reference inequality regardless of the exact
-/// default equality behaviour of the state-notifier package, which can't
-/// be verified here without a Dart compiler available in this sandbox.
+/// commit inside `AppStateNotifier` publishes a *new* [AppState] instance
+/// via [clone], so Riverpod always sees a changed value and notifies
+/// listeners even though the internals were mutated in place.
 class AppState {
   AppState({
+    this.token,
     required this.username,
     required this.displayName,
-    required this.preferredCurrency,
+    required this.localState,
+  });
+
+  /// Session token — present only while signed in. Persisted in secure
+  /// storage by `AppStateNotifier`, never in [LocalAppState].
+  final String? token;
+  final String username;
+  final String displayName;
+  LocalAppState localState;
+
+  bool get isLoggedIn => token != null;
+
+  /// Total value of all escrow contracts currently holding this user's
+  /// funds (funded/disputed — not yet released/refunded), converted to
+  /// NGN. This is money that left the spendable balance the moment
+  /// escrow was funded — it is not "reserved but spendable."
+  double escrowHeldNgn() {
+    double total = 0;
+    for (final e in localState.escrows) {
+      if (!e.isBuyer) continue;
+      if (e.status == EscrowStatus.funded ||
+          e.status == EscrowStatus.disputed) {
+        for (final m in e.milestones) {
+          if (m.status != MilestoneStatus.released) {
+            total += convertToNgn(m.amount, e.currency);
+          }
+        }
+      }
+    }
+    return total;
+  }
+
+  /// Total value locked in active savings goals, converted to NGN.
+  double savingsHeldNgn() {
+    double total = 0;
+    for (final g in localState.savingsGoals) {
+      if (g.active) total += convertToNgn(g.current, g.currency);
+    }
+    return total;
+  }
+
+  /// NGN value of a single unit of [currency] — the shared conversion
+  /// pivot used everywhere a source currency needs to be compared
+  /// against or converted into another (Smart Pay's funding engine,
+  /// Home's total wealth, cross-currency quotes).
+  double ngnPerUnit(String currency) {
+    if (currency == 'NGN') return 1;
+    if (localState.cryptoPrices.containsKey(currency)) {
+      return localState.cryptoPrices[currency]! *
+          (localState.fxRatesToNgn['USD'] ?? 1);
+    }
+    return localState.fxRatesToNgn[currency] ?? 1;
+  }
+
+  double convertToNgn(double amount, String currency) =>
+      amount * ngnPerUnit(currency);
+
+  /// Converts [amount] of [from] into the equivalent amount of [to],
+  /// via NGN as the pivot currency.
+  double convert(double amount, String from, String to) {
+    if (from == to) return amount;
+    return convertToNgn(amount, from) / ngnPerUnit(to);
+  }
+
+  /// Total wealth = spendable fiat + crypto (at market) + savings-held +
+  /// escrow-held, all converted to NGN (spec §3). Savings/escrow are
+  /// included but should be shown as "locked" separately by the UI.
+  double totalWealthNgn() {
+    double total = 0;
+    localState.fiatBalances
+        .forEach((code, amount) => total += convertToNgn(amount, code));
+    localState.cryptoHoldings
+        .forEach((sym, amount) => total += convertToNgn(amount, sym));
+    total += savingsHeldNgn();
+    total += escrowHeldNgn();
+    return total;
+  }
+
+  double spendableFiat(String currency) =>
+      localState.fiatBalances[currency] ?? 0;
+  double spendableCrypto(String symbol) =>
+      localState.cryptoHoldings[symbol] ?? 0;
+
+  AppState clone() {
+    return AppState(
+      token: token,
+      username: username,
+      displayName: displayName,
+      localState: localState.clone(),
+    );
+  }
+
+  /// State while signed out: device-local data only, no backend data.
+  factory AppState.signedOut(LocalAppState local) => AppState(
+        username: '',
+        displayName: '',
+        localState: local,
+      );
+}
+
+/// Device-local data: the only part of [AppState] persisted on the
+/// device (see `LocalStore`). Backend data is never persisted.
+class LocalAppState {
+  LocalAppState({
+    this.preferredCurrency = 'NGN',
+    this.hideBalance = false,
+    this.showOnboarding = true,
+    this.hasLoggedInBefore = false,
     required this.fiatBalances,
     required this.cryptoHoldings,
     required this.cryptoPrices,
@@ -32,13 +138,12 @@ class AppState {
     required this.savingsGoals,
     required this.automationRules,
     required this.notifications,
-    this.hideBalance = false,
-    this.showOnboarding = true,
   });
 
-  final String username;
-  final String displayName;
-  String preferredCurrency;
+  final String preferredCurrency;
+  bool hideBalance;
+  bool showOnboarding;
+  bool hasLoggedInBefore;
 
   /// Fiat balances by currency code — NGN always exists by default.
   final Map<String, double> fiatBalances;
@@ -60,97 +165,7 @@ class AppState {
   final List<AutomationRule> automationRules;
   final List<AppNotification> notifications;
 
-  bool hideBalance;
-  bool showOnboarding;
-
-  /// Total value of all escrow contracts currently holding this user's
-  /// funds (funded/disputed — not yet released/refunded), converted to
-  /// NGN. This is money that left the spendable balance the moment
-  /// escrow was funded — it is not "reserved but spendable."
-  double escrowHeldNgn() {
-    double total = 0;
-    for (final e in escrows) {
-      if (!e.isBuyer) continue;
-      if (e.status == EscrowStatus.funded ||
-          e.status == EscrowStatus.disputed) {
-        for (final m in e.milestones) {
-          if (m.status != MilestoneStatus.released) {
-            total += convertToNgn(m.amount, e.currency);
-          }
-        }
-      }
-    }
-    return total;
-  }
-
-  /// Total value locked in active savings goals, converted to NGN.
-  double savingsHeldNgn() {
-    double total = 0;
-    for (final g in savingsGoals) {
-      if (g.active) total += convertToNgn(g.current, g.currency);
-    }
-    return total;
-  }
-
-  /// NGN value of a single unit of [currency] — the shared conversion
-  /// pivot used everywhere a source currency needs to be compared
-  /// against or converted into another (Smart Pay's funding engine,
-  /// Home's total wealth, cross-currency quotes).
-  double ngnPerUnit(String currency) {
-    if (currency == 'NGN') return 1;
-    if (cryptoPrices.containsKey(currency)) {
-      return cryptoPrices[currency]! * (fxRatesToNgn['USD'] ?? 1);
-    }
-    return fxRatesToNgn[currency] ?? 1;
-  }
-
-  double convertToNgn(double amount, String currency) =>
-      amount * ngnPerUnit(currency);
-
-  /// Converts [amount] of [from] into the equivalent amount of [to],
-  /// via NGN as the pivot currency.
-  double convert(double amount, String from, String to) {
-    if (from == to) return amount;
-    return convertToNgn(amount, from) / ngnPerUnit(to);
-  }
-
-  /// Total wealth = spendable fiat + crypto (at market) + savings-held +
-  /// escrow-held, all converted to NGN (spec §3). Savings/escrow are
-  /// included but should be shown as "locked" separately by the UI.
-  double totalWealthNgn() {
-    double total = 0;
-    fiatBalances.forEach((code, amount) => total += convertToNgn(amount, code));
-    cryptoHoldings.forEach((sym, amount) => total += convertToNgn(amount, sym));
-    total += savingsHeldNgn();
-    total += escrowHeldNgn();
-    return total;
-  }
-
-  double spendableFiat(String currency) => fiatBalances[currency] ?? 0;
-  double spendableCrypto(String symbol) => cryptoHoldings[symbol] ?? 0;
-
-  AppState clone() {
-    return AppState(
-      username: username,
-      displayName: displayName,
-      preferredCurrency: preferredCurrency,
-      fiatBalances: Map<String, double>.from(fiatBalances),
-      cryptoHoldings: Map<String, double>.from(cryptoHoldings),
-      cryptoPrices: Map<String, double>.from(cryptoPrices),
-      fxRatesToNgn: Map<String, double>.from(fxRatesToNgn),
-      ledger: List<LedgerEntry>.from(ledger),
-      escrows: List<EscrowContract>.from(escrows),
-      savingsGoals: List<SavingsGoal>.from(savingsGoals),
-      automationRules: List<AutomationRule>.from(automationRules),
-      notifications: List<AppNotification>.from(notifications),
-      hideBalance: hideBalance,
-      showOnboarding: showOnboarding,
-    );
-  }
-
   Map<String, dynamic> toJson() => {
-        'username': username,
-        'displayName': displayName,
         'preferredCurrency': preferredCurrency,
         'fiatBalances': fiatBalances,
         'cryptoHoldings': cryptoHoldings,
@@ -163,12 +178,11 @@ class AppState {
         'notifications': notifications.map((e) => e.toJson()).toList(),
         'hideBalance': hideBalance,
         'showOnboarding': showOnboarding,
+        'hasLoggedInBefore': hasLoggedInBefore,
       };
 
-  factory AppState.fromJson(Map<String, dynamic> json) => AppState(
-        username: json['username'] as String,
-        displayName: json['displayName'] as String,
-        preferredCurrency: json['preferredCurrency'] as String,
+  factory LocalAppState.fromJson(Map<String, dynamic> json) => LocalAppState(
+        preferredCurrency: json['preferredCurrency'] as String? ?? 'NGN',
         fiatBalances: Map<String, double>.from((json['fiatBalances'] as Map)
             .map((k, v) => MapEntry(k as String, (v as num).toDouble()))),
         cryptoHoldings: Map<String, double>.from((json['cryptoHoldings'] as Map)
@@ -199,16 +213,31 @@ class AppState {
             .toList(),
         hideBalance: json['hideBalance'] as bool? ?? false,
         showOnboarding: json['showOnboarding'] as bool? ?? true,
+        hasLoggedInBefore: json['hasLoggedInBefore'] as bool? ?? false,
       );
 
-  /// Fresh-install seed state — mirrors `MockData` so the app looks the
-  /// same on first run, but now backed by real, mutable, persisted state.
-  factory AppState.seed() {
+  LocalAppState clone() {
+    return LocalAppState(
+      preferredCurrency: preferredCurrency,
+      fiatBalances: Map<String, double>.from(fiatBalances),
+      cryptoHoldings: Map<String, double>.from(cryptoHoldings),
+      cryptoPrices: Map<String, double>.from(cryptoPrices),
+      fxRatesToNgn: Map<String, double>.from(fxRatesToNgn),
+      ledger: List<LedgerEntry>.from(ledger),
+      escrows: List<EscrowContract>.from(escrows),
+      savingsGoals: List<SavingsGoal>.from(savingsGoals),
+      automationRules: List<AutomationRule>.from(automationRules),
+      notifications: List<AppNotification>.from(notifications),
+      hideBalance: hideBalance,
+      showOnboarding: showOnboarding,
+      hasLoggedInBefore: hasLoggedInBefore,
+    );
+  }
+
+  factory LocalAppState.seed() {
     final now = DateTime.now();
-    return AppState(
-      username: '@scorche',
-      displayName: 'Scorche',
-      preferredCurrency: 'NGN',
+
+    return LocalAppState(
       fiatBalances: {
         'NGN': 6264000.00,
         'USD': 3120.40,

@@ -84,4 +84,5 @@ class AppIcons {
   static const IconData sun = Icons.light_mode_rounded;
   static const IconData moon = Icons.dark_mode_rounded;
   static const IconData contrast = Icons.contrast_rounded;
+  static const IconData logout = Icons.logout_rounded;
 }

@@ -10,13 +10,23 @@ import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/scorch_preview_screen.dart';
 import 'features/onboarding/splash_screen.dart';
 import 'state/providers/accent_color_provider.dart';
+import 'state/providers/app_state_notifier.dart';
 import 'state/providers/theme_mode_provider.dart';
 import 'theme/app_colors.dart';
 import 'theme/app_theme.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const ProviderScope(child: ScorchePayApp()));
+  final container = ProviderContainer();
+  // Start restoring the session (which builds app state) right away. It
+  // may call the backend, so SplashScreen awaits `appStateProvider.future`
+  // instead of holding up the first frame here.
+  container.read(appStateProvider);
+
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: const ScorchePayApp(),
+  ));
 }
 
 class ScorchePayApp extends ConsumerWidget {

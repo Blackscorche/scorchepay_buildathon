@@ -13,6 +13,7 @@ dependencies:
   http: ^1.2.0
   flutter_riverpod: ^2.5.1
   shared_preferences: ^2.2.3
+  flutter_secure_storage: ^9.2.2
   uuid: ^4.4.0
   image_picker: ^1.1.2
 

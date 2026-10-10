@@ -16,14 +16,14 @@ class SavingsService {
   SavingsService._();
 
   static SavingsGoal? find(AppState s, String id) {
-    for (final g in s.savingsGoals) {
+    for (final g in s.localState.savingsGoals) {
       if (g.id == id) return g;
     }
     return null;
   }
 
   static String create(AppState s, SavingsGoal goal) {
-    s.savingsGoals.insert(0, goal);
+    s.localState.savingsGoals.insert(0, goal);
     _notify(s, 'Goal created', '"${goal.name}" is ready to fund.');
     return goal.id;
   }
@@ -101,7 +101,7 @@ class SavingsService {
     final g = find(s, goalId);
     if (g == null) return;
     if (g.current > 0) withdraw(s, goalId, g.current);
-    s.savingsGoals.removeWhere((x) => x.id == goalId);
+    s.localState.savingsGoals.removeWhere((x) => x.id == goalId);
     _notify(s, 'Goal deleted',
         '"${g.name}" was deleted and its balance returned to your wallet.');
   }
@@ -203,7 +203,7 @@ class SavingsService {
   }
 
   static void _notify(AppState s, String title, String body) {
-    s.notifications.insert(
+    s.localState.notifications.insert(
         0,
         AppNotification(
             id: _uuid.v4(),

@@ -6,7 +6,7 @@ import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/photo_picker_sheet.dart';
-import '../../state/providers/providers.dart';
+import '../../state/providers/profile_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import 'kyc_screen.dart';

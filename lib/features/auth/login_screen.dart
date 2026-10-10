@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../state/providers/app_state_notifier.dart';
+import '../../state/services/backend_service.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../app_routes.dart';
 import '../../core/app_icons.dart';
@@ -8,15 +11,15 @@ import '../../core/widgets/pin_dots.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 
-/// Returning-user login — contact field plus a 4-digit PIN keypad.
-class LoginScreen extends StatefulWidget {
+/// Returning-user login — username field plus a 4-digit PIN keypad.
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _contactController = TextEditingController();
   String _pin = '';
   bool _busy = false;
@@ -40,8 +43,9 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() => _busy = true);
     try {
-      await Future.delayed(const Duration(milliseconds: 300));
-      if (_pin != '1234') throw Exception('Demo PIN is 1234');
+      await ref
+          .read(appStateProvider.notifier)
+          .login(_contactController.text, _pin);
       if (mounted) {
         Navigator.of(context)
             .pushNamedAndRemoveUntil(AppRoutes.home, (_) => false);
@@ -55,6 +59,18 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Back to Welcome (e.g. to create a new account). Welcome is normally
+  /// already underneath — see `openAuthEntry` — but fall back to opening
+  /// it if Login is ever the only route.
+  void _back() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+    } else {
+      navigator.pushReplacementNamed(AppRoutes.welcome);
     }
   }
 
@@ -89,7 +105,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 8),
                       IconCircleButton(
                         icon: AppIcons.chevronLeft,
-                        onTap: () => Navigator.of(context).pop(),
+                        onTap: _back,
                       ),
                       const Align(
                           alignment: Alignment.centerRight,
@@ -97,7 +113,9 @@ class _LoginScreenState extends State<LoginScreen> {
                               activity: ScorchActivity.protect, size: 64)),
                       Text('Welcome back', style: AppText.pageTitle),
                       const SizedBox(height: 8),
-                      Text('Explore demo mode. PIN: 1234.',
+                      Text(
+                          'Demo account: username "${BackendService.demoUsername}" '
+                          '(or leave it blank), PIN ${BackendService.demoPin}.',
                           style: AppText.bodyMuted),
                       const SizedBox(height: 24),
                       TextField(
