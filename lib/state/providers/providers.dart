@@ -21,6 +21,10 @@ final unreadNotificationCountProvider = Provider<int>(
 final showOnboardingProvider = Provider<bool>((ref) =>
     ref.watch(appStateProvider).requireValue.localState.showOnboarding);
 
+/// The signed-in user's KYC tier and status, from the backend.
+final kycProvider = Provider(
+    (ref) => ref.watch(appStateProvider.select((s) => s.requireValue.kyc)));
+
 final hasLoggedInBeforeProvider = Provider<bool>((ref) => ref.watch(
     appStateProvider
         .select((s) => s.requireValue.localState.username.isNotEmpty)));

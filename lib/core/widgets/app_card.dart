@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_theme.dart';
-import 'decorative_rings.dart';
 
 /// Standard surface card used across every screen: 1px hairline border,
 /// rounded corners, flat neutral fill. Kept deliberately quiet so the

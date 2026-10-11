@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../state/providers/app_state_notifier.dart';
 import '../../state/services/backend_service.dart';
+import '../../state/services/passkey_service.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../app_routes.dart';
 import '../../core/app_icons.dart';
@@ -12,7 +13,8 @@ import '../../core/widgets/pin_dots.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 
-/// Returning-user login — username field plus a 4-digit PIN keypad.
+/// Returning-user login — username field plus a 4-digit PIN keypad, or a
+/// passkey where available.
 class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
@@ -67,6 +69,23 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     }
   }
 
+  Future<void> _loginWithPasskey() async {
+    if (_busy) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+      _pin = '';
+    });
+    try {
+      await ref.read(appStateProvider.notifier).loginWithPasskey();
+      // The router navigates on once the session is signed in.
+    } catch (error) {
+      if (mounted) setState(() => _error = error.toString());
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   /// Back to Welcome (e.g. to create a new account). Login is nested
   /// under Welcome, so this is normally a pop; go() covers the case where
   /// nothing is underneath.
@@ -93,6 +112,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final passkeysAvailable = ref.watch(passkeysAvailableProvider);
     return Scaffold(
       backgroundColor: AppColors.page,
       body: Stack(
@@ -135,19 +155,35 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 16),
                       Center(child: PinDots(length: 4, filled: _pin.length)),
                       const SizedBox(height: 8),
-                      Align(
-                        alignment: Alignment.centerRight,
-                        child: TextButton(
-                          onPressed: _forgotPin,
-                          child: Text(
-                            'Forgot PIN?',
-                            style: TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: AppColors.accent,
+                      Row(
+                        children: [
+                          if (passkeysAvailable)
+                            TextButton.icon(
+                              onPressed: _busy ? null : _loginWithPasskey,
+                              icon: Icon(AppIcons.fingerprint,
+                                  size: 18, color: AppColors.accent),
+                              label: Text(
+                                'Use a passkey',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: AppColors.accent,
+                                ),
+                              ),
+                            ),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: _forgotPin,
+                            child: Text(
+                              'Forgot PIN?',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                color: AppColors.accent,
+                              ),
                             ),
                           ),
-                        ),
+                        ],
                       ),
                       if (_busy) const LinearProgressIndicator(),
                       if (_error != null)

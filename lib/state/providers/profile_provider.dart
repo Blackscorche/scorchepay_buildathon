@@ -1,6 +1,8 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../models/kyc.dart';
+import '../services/backend_service.dart';
 import 'app_state_notifier.dart';
 
 class UserProfile {
@@ -10,9 +12,8 @@ class UserProfile {
     required this.email,
     required this.phone,
     required this.bio,
-    this.photoPath,
-    this.tier = 'Tier 3',
-    this.kycStatus = 'Verified',
+    required this.kyc,
+    this.photoUrl,
   });
 
   final String username;
@@ -20,12 +21,12 @@ class UserProfile {
   final String email;
   final String phone;
   final String bio;
-  final String? photoPath;
-  final String tier;
-  final String kycStatus;
 
-  File? get photoFile =>
-      photoPath != null && photoPath!.isNotEmpty ? File(photoPath!) : null;
+  /// Backend-derived (from app state), so not editable via [copyWith]:
+  /// change the photo with `AppStateNotifier.setProfilePhoto`, and show it
+  /// with [profilePhotoProvider].
+  final String? photoUrl;
+  final KycInfo kyc;
 
   UserProfile copyWith({
     String? username,
@@ -33,10 +34,6 @@ class UserProfile {
     String? email,
     String? phone,
     String? bio,
-    String? photoPath,
-    bool clearPhoto = false,
-    String? tier,
-    String? kycStatus,
   }) {
     return UserProfile(
       username: username ?? this.username,
@@ -44,9 +41,8 @@ class UserProfile {
       email: email ?? this.email,
       phone: phone ?? this.phone,
       bio: bio ?? this.bio,
-      photoPath: clearPhoto ? null : (photoPath ?? this.photoPath),
-      tier: tier ?? this.tier,
-      kycStatus: kycStatus ?? this.kycStatus,
+      photoUrl: photoUrl,
+      kyc: kyc,
     );
   }
 }
@@ -56,22 +52,23 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     this._ref,
     String username,
     String displayName,
+    KycInfo kyc,
+    String? photoUrl,
   ) : super(UserProfile(
-          // Identity comes from the backend user via AppState — see
+          // Identity, KYC and photo come from the backend user via
+          // AppState — see
           // [userProfileProvider].
           username: username,
           displayName: displayName,
+          kyc: kyc,
+          photoUrl: photoUrl,
           email: 'issaabu399@gmail.com',
           phone: '+234 810 456 2311',
           bio: 'Building on ScorchePay · Money OS',
-          photoPath: null,
-          tier: 'Tier 3',
-          kycStatus: 'Verified',
         )) {
     _loadFromPrefs();
   }
   final Ref _ref;
-  static const _keyPhoto = 'user_profile_photo_path';
 
   static const _keyEmail = 'user_profile_email';
   static const _keyPhone = 'user_profile_phone';
@@ -80,29 +77,15 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final photo = prefs.getString(_keyPhoto);
       final email = prefs.getString(_keyEmail);
       final phone = prefs.getString(_keyPhone);
       final bio = prefs.getString(_keyBio);
 
       state = state.copyWith(
-        photoPath: photo,
         email: email,
         phone: phone,
         bio: bio,
       );
-    } catch (_) {}
-  }
-
-  Future<void> setPhoto(String? path) async {
-    state = state.copyWith(photoPath: path, clearPhoto: path == null);
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (path != null && path.isNotEmpty) {
-        await prefs.setString(_keyPhoto, path);
-      } else {
-        await prefs.remove(_keyPhoto);
-      }
     } catch (_) {}
   }
 
@@ -132,9 +115,9 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     } catch (_) {}
 
     // Identity is owned by the backend (via app state). While signed out
-    // (e.g. during sign-up, which isn't wired to the backend yet) there's
-    // no session to save it to, so it only lives in this profile state.
-    // Errors propagate so the caller can show them.
+    // there's no session to save it to, so it only lives in this profile
+    // state (sign-up sends identity with the account instead). Errors
+    // propagate so the caller can show them.
     if (identityChanged &&
         _ref.read(appStateProvider).requireValue.isLoggedIn) {
       await _ref
@@ -146,7 +129,21 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
 
 final userProfileProvider =
     StateNotifierProvider<UserProfileNotifier, UserProfile>((ref) {
-  final (username, displayName) = ref.watch(appStateProvider.select(
-      (s) => (s.requireValue.localState.username, s.requireValue.displayName)));
-  return UserProfileNotifier(ref, username, displayName);
+  final (username, displayName, kyc, photoUrl) =
+      ref.watch(appStateProvider.select((s) => (
+            s.requireValue.localState.username,
+            s.requireValue.displayName,
+            s.requireValue.kyc,
+            s.requireValue.photoUrl,
+          )));
+  return UserProfileNotifier(ref, username, displayName, kyc, photoUrl);
+});
+
+/// The signed-in user's profile photo, downloaded from the backend; null
+/// if they have none. Reloads when the photo URL changes.
+final profilePhotoProvider = FutureProvider<Uint8List?>((ref) async {
+  final url = ref.watch(
+      appStateProvider.select((s) => s.valueOrNull?.photoUrl));
+  if (url == null) return null;
+  return ref.read(backendServiceProvider).loadProfilePhoto(url);
 });

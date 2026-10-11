@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import '../../theme/app_colors.dart';
@@ -11,13 +12,23 @@ import 'app_modal.dart';
 /// change — the sheet was dismissed without picking or removing, so the
 /// caller should leave whatever photo state it already had alone.
 class PhotoPickResult {
-  const PhotoPickResult.picked(this.file) : removed = false;
+  const PhotoPickResult.picked(XFile this.file) : removed = false;
   const PhotoPickResult.removed()
       : file = null,
         removed = true;
 
-  final File? file;
+  /// The picked image. Works on every platform, web included: read it with
+  /// `readAsBytes()` (e.g. to upload it) and show it with
+  /// [pickedPhotoImage].
+  final XFile? file;
   final bool removed;
+}
+
+/// An [ImageProvider] for a picked photo, for previews. On web the
+/// [XFile]'s path is a blob URL; elsewhere it's a file on disk.
+ImageProvider<Object> pickedPhotoImage(XFile file) {
+  if (kIsWeb) return NetworkImage(file.path);
+  return FileImage(File(file.path));
 }
 
 /// Bottom sheet offering "take photo" / "choose from library" / "remove"
@@ -61,7 +72,7 @@ Future<PhotoPickResult?> showPhotoPickerSheet(
       imageQuality: 85,
     );
     if (xfile == null) return null;
-    return PhotoPickResult.picked(File(xfile.path));
+    return PhotoPickResult.picked(xfile);
   } catch (_) {
     if (!context.mounted) return null;
     await showAppModal(

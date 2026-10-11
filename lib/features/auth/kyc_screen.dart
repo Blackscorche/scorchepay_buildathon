@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../core/app_icons.dart';
 import '../../core/widgets/app_modal.dart';
 import '../../core/widgets/buttons.dart';
@@ -7,7 +7,6 @@ import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/photo_picker_sheet.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
-import 'biometric_prompt_screen.dart';
 
 class _IdType {
   const _IdType(this.label);
@@ -28,6 +27,10 @@ const _stepSubtitles = [
   'Make sure your face is well-lit and centered.',
 ];
 
+/// Document-upload KYC. Not reachable any more: sign-up skips KYC, and
+/// tier upgrades will go through Mono myPass instead. Kept for its layout
+/// until that flow is built.
+///
 /// KYC verification — reached once the account, PIN and profile exist.
 /// Three steps in one screen (ID type/number, document photos, selfie)
 /// rather than separate pushed routes, since it's one continuous task
@@ -44,9 +47,9 @@ class _KycScreenState extends State<KycScreen> {
   int _step = 0;
   int? _idType;
   final _idNumberController = TextEditingController();
-  File? _frontPhoto;
-  File? _backPhoto;
-  File? _selfiePhoto;
+  XFile? _frontPhoto;
+  XFile? _backPhoto;
+  XFile? _selfiePhoto;
   bool _submitting = false;
 
   @override
@@ -92,10 +95,7 @@ class _KycScreenState extends State<KycScreen> {
           "We're reviewing your documents — this usually takes less than 24 hours. You can keep using ScorchePay in the meantime.",
       actionLabel: 'Continue',
     );
-    if (mounted) {
-      Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const BiometricPromptScreen()));
-    }
+    if (mounted) Navigator.of(context).pop();
   }
 
   Future<void> _pickDoc({required bool isFront}) async {
@@ -237,7 +237,7 @@ class _KycScreenState extends State<KycScreen> {
               color: hasSelfie ? null : AppColors.surface2,
               image: hasSelfie
                   ? DecorationImage(
-                      image: FileImage(_selfiePhoto!), fit: BoxFit.cover)
+                      image: pickedPhotoImage(_selfiePhoto!), fit: BoxFit.cover)
                   : null,
               border: Border.all(
                   color: hasSelfie ? AppColors.accent : AppColors.borderStrong,
@@ -324,7 +324,7 @@ class _DocTile extends StatelessWidget {
       {required this.label, required this.photo, required this.onTap});
 
   final String label;
-  final File? photo;
+  final XFile? photo;
   final VoidCallback onTap;
 
   @override
@@ -345,7 +345,7 @@ class _DocTile extends StatelessWidget {
                     : AppColors.border),
             borderRadius: BorderRadius.circular(16),
             image: uploaded
-                ? DecorationImage(image: FileImage(photo!), fit: BoxFit.cover)
+                ? DecorationImage(image: pickedPhotoImage(photo!), fit: BoxFit.cover)
                 : null,
           ),
           alignment: Alignment.center,

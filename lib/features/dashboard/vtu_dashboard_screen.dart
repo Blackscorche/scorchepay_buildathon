@@ -5,6 +5,7 @@ import '../../core/app_icons.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/icon_action_button.dart';
+import '../../core/widgets/kyc_status_badge.dart';
 import '../../core/widgets/section_title.dart';
 import '../../core/widgets/token_badge.dart';
 import '../../data/coingecko_service.dart';
@@ -133,6 +134,8 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                       const SizedBox(height: 2),
                       Text('Top up and check your crypto balance',
                           style: AppText.bodyMuted),
+                      const SizedBox(height: 8),
+                      KycStatusBadge(kyc: profile.kyc),
                     ],
                   ),
                 ),

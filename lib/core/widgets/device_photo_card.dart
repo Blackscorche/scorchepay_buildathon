@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import '../app_icons.dart';
@@ -21,8 +21,8 @@ class DevicePhotoCard extends StatelessWidget {
 
   final String label;
   final String hint;
-  final File? photo;
-  final ValueChanged<File?> onChanged;
+  final XFile? photo;
+  final ValueChanged<XFile?> onChanged;
   final IconData icon;
   final double height;
   final String title;
@@ -38,7 +38,8 @@ class DevicePhotoCard extends StatelessWidget {
   }
 
   void _viewFullScreen(BuildContext context) {
-    if (photo == null) return;
+    final currentPhoto = photo;
+    if (currentPhoto == null) return;
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => Scaffold(
@@ -55,7 +56,8 @@ class DevicePhotoCard extends StatelessWidget {
           ),
           body: Center(
             child: InteractiveViewer(
-              child: Image.file(photo!, fit: BoxFit.contain),
+              child: Image(
+                  image: pickedPhotoImage(currentPhoto), fit: BoxFit.contain),
             ),
           ),
         ),
@@ -65,7 +67,8 @@ class DevicePhotoCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final hasPhoto = photo != null;
+    final currentPhoto = photo;
+    final hasPhoto = currentPhoto != null;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -112,7 +115,9 @@ class DevicePhotoCard extends StatelessWidget {
                 ? Stack(
                     fit: StackFit.expand,
                     children: [
-                      Image.file(photo!, fit: BoxFit.cover),
+                      Image(
+                          image: pickedPhotoImage(currentPhoto),
+                          fit: BoxFit.cover),
                       Positioned(
                         bottom: 0,
                         left: 0,

@@ -3,6 +3,7 @@ import 'package:uuid/uuid.dart';
 import '../models/app_notification.dart';
 import '../models/automation.dart';
 import '../models/escrow.dart';
+import '../models/kyc.dart';
 import '../models/ledger_entry.dart';
 import '../models/savings.dart';
 
@@ -20,6 +21,8 @@ class AppState {
   AppState({
     this.token,
     required this.displayName,
+    this.kyc = const KycInfo.initial(),
+    this.photoUrl,
     required this.localState,
   });
 
@@ -27,9 +30,23 @@ class AppState {
   /// storage by `AppStateNotifier`, never in [LocalAppState].
   final String? token;
   final String displayName;
+
+  /// KYC tier and status — backend-derived, never computed or stored on
+  /// the device. Signed out, this is the initial tier 0.
+  final KycInfo kyc;
+
+  /// Where the backend serves the profile photo; null if there isn't one.
+  /// Load it with `BackendService.loadProfilePhoto` (see
+  /// `profilePhotoProvider`).
+  final String? photoUrl;
   LocalAppState localState;
 
   bool get isLoggedIn => token != null;
+  String get requireToken {
+    final currentToken = token;
+    if (currentToken != null) return currentToken;
+    throw StateError('Not signed in.');
+  }
 
   /// Total value of all escrow contracts currently holding this user's
   /// funds (funded/disputed — not yet released/refunded), converted to
@@ -106,6 +123,8 @@ class AppState {
     return AppState(
       token: token,
       displayName: displayName,
+      kyc: kyc,
+      photoUrl: photoUrl,
       localState: localState.cloneWith(),
     );
   }

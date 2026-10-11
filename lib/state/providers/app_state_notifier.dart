@@ -1,31 +1,30 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:passkeys/authenticator.dart';
+import 'package:passkeys/types.dart'
+    show AuthenticateRequestType, RegisterRequestType;
 import 'package:uuid/uuid.dart';
 
+import '../services/backend_service.dart';
 import '../models/app_notification.dart';
 import '../models/automation.dart';
 import '../models/escrow.dart';
 import '../models/ledger_entry.dart';
 import '../models/savings.dart';
+import '../models/sign_up_draft.dart';
 import '../services/automation_service.dart';
-import '../services/backend_service.dart';
 import '../services/escrow_service.dart';
 import '../services/fx_rate_service.dart';
 import '../services/ledger_service.dart';
 import '../services/local_store.dart';
+import '../services/passkey_service.dart';
 import '../services/savings_service.dart';
 import '../services/simulated_providers.dart';
 import '../services/smart_pay_engine.dart';
 import 'app_state.dart';
-
-// ---------------------------------------------------------------------
-// Session and app-state providers
-// ---------------------------------------------------------------------
-
-final backendServiceProvider =
-    Provider<BackendService>((ref) => const BackendService());
 
 final secureStorageProvider = Provider<FlutterSecureStorage>(
   // useDataProtectionKeyChain can be used with MacOsOptions for testing
@@ -52,6 +51,7 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
   static const _tokenKey = 'auth_token';
 
   BackendService get _backend => ref.read(backendServiceProvider);
+  PasskeyAuthenticator get _passkeys => ref.read(passkeyAuthenticatorProvider);
   FlutterSecureStorage get _secure => ref.read(secureStorageProvider);
   LocalStore get _store => ref.read(localStoreProvider);
 
@@ -104,6 +104,102 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
   Future<void> login(String username, String pin) async {
     final token =
         await _backend.login(username, pin); // bad PIN still throws here
+    await _startSession(token);
+  }
+
+  /// Logs in with a passkey on this device (the OS shows the biometric
+  /// prompt and lets the user pick one if there are several).
+  Future<void> loginWithPasskey() async {
+    final options = await _backend.startPasskeyLogin();
+    final assertion = await passkeyCall(() => _passkeys.authenticate(
+        AuthenticateRequestType.fromJsonString(options,
+            preferImmediatelyAvailableCredentials: false)));
+    final token = await _backend.finishPasskeyLogin(assertion.toJsonString());
+    await _startSession(token);
+  }
+
+  /// Adds a passkey on this device to the signed-in account.
+  Future<void> registerPasskey() async {
+    await _registerPasskey(_appState.requireToken);
+  }
+
+  Future<void> _registerPasskey(String sessionToken) async {
+    final options = await _backend.startPasskeyRegistration(sessionToken);
+    final credential = await passkeyCall(
+        () => _passkeys.register(RegisterRequestType.fromJsonString(options)));
+    await _backend.finishPasskeyRegistration(
+        sessionToken, credential.toJsonString());
+  }
+
+  /// Creates the account from a completed [draft] and signs in to it.
+  /// The router then leaves the sign-up flow for home.
+  ///
+  /// With [registerPasskey], also adds a passkey (the OS shows the
+  /// biometric prompt) before signing in, while the sign-up screen is still
+  /// up. That step, and uploading [SignUpDraft.photo], can fail without
+  /// failing sign-up: the result says what didn't work.
+  Future<SignUpResult> signUp(SignUpDraft draft,
+      {bool registerPasskey = false}) async {
+    final signUpToken = draft.signUpToken;
+    final pin = draft.pin;
+    final username = draft.username;
+    if (signUpToken == null || pin == null || username == null) {
+      throw StateError('Sign-up is missing a step.');
+    }
+    // Validation and conflicts (e.g. a taken username) throw here.
+    final token = await _backend.signUp(
+        signUpToken: signUpToken,
+        displayName: draft.displayName,
+        username: username,
+        pin: pin);
+
+    // Optional extras need a session, so they run now, while the sign-up
+    // screen is still up. Neither failing fails sign-up.
+    String? photoError;
+    final photo = draft.photo;
+    if (photo != null) {
+      try {
+        await _backend.uploadProfilePhoto(token, photo);
+      } catch (error) {
+        photoError = error.toString();
+      }
+    }
+
+    String? passkeyError;
+    if (registerPasskey) {
+      try {
+        await _registerPasskey(token);
+      } catch (error) {
+        passkeyError = error.toString();
+      }
+    }
+
+    try {
+      await _startSession(token);
+    } on AuthException {
+      // The account exists now, so retrying sign-up would only hit
+      // "username taken". Point them at login instead.
+      throw const AuthException(
+          "Your account was created, but we couldn't sign you in. Please log in.");
+    }
+    return SignUpResult(photoError: photoError, passkeyError: passkeyError);
+  }
+
+  /// Sets the signed-in user's profile photo, or removes it if [photo] is
+  /// null.
+  Future<void> setProfilePhoto(Uint8List? photo) async {
+    final token = _appState.token;
+    if (token == null) throw StateError('Not signed in.');
+    if (photo == null) {
+      await _backend.deleteProfilePhoto(token);
+    } else {
+      await _backend.uploadProfilePhoto(token, photo);
+    }
+    await _reload();
+  }
+
+  /// Stores [token] and loads the signed-in state for it.
+  Future<void> _startSession(String token) async {
     await _secure.write(key: _tokenKey, value: token);
     try {
       await _reload(); // throws if build() fails
@@ -675,4 +771,13 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
     }
     await _commit();
   }
+}
+
+/// What didn't work during [AppStateNotifier.signUp], beyond creating the
+/// account (which throws instead). Each is a user-facing message, or null.
+class SignUpResult {
+  const SignUpResult({this.photoError, this.passkeyError});
+
+  final String? photoError;
+  final String? passkeyError;
 }

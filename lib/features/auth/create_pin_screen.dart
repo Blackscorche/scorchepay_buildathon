@@ -4,13 +4,16 @@ import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/pin_dots.dart';
+import '../../state/models/sign_up_draft.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import 'confirm_pin_screen.dart';
 
 /// First half of PIN setup — captures the desired 4-digit PIN.
 class CreatePinScreen extends StatefulWidget {
-  const CreatePinScreen({super.key});
+  const CreatePinScreen({super.key, required this.draft});
+
+  final SignUpDraft draft;
 
   @override
   State<CreatePinScreen> createState() => _CreatePinScreenState();
@@ -27,7 +30,8 @@ class _CreatePinScreenState extends State<CreatePinScreen> {
         if (mounted) {
           Navigator.of(context).push(
             MaterialPageRoute(
-                builder: (_) => ConfirmPinScreen(originalPin: _pin)),
+                builder: (_) => ConfirmPinScreen(
+                    draft: widget.draft, originalPin: _pin)),
           );
         }
       });

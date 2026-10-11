@@ -4,14 +4,17 @@ import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/pin_dots.dart';
+import '../../state/models/sign_up_draft.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import 'profile_setup_screen.dart';
 
 /// Second half of PIN setup — re-enter the PIN to confirm it matches.
 class ConfirmPinScreen extends StatefulWidget {
-  const ConfirmPinScreen({super.key, required this.originalPin});
+  const ConfirmPinScreen(
+      {super.key, required this.draft, required this.originalPin});
 
+  final SignUpDraft draft;
   final String originalPin;
 
   @override
@@ -30,7 +33,9 @@ class _ConfirmPinScreenState extends State<ConfirmPinScreen> {
         Future.delayed(const Duration(milliseconds: 250), () {
           if (mounted) {
             Navigator.of(context).push(
-              MaterialPageRoute(builder: (_) => const ProfileSetupScreen()),
+              MaterialPageRoute(
+                  builder: (_) => ProfileSetupScreen(
+                      draft: widget.draft.copyWith(pin: _pin))),
             );
           }
         });

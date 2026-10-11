@@ -1,5 +1,5 @@
 name: scorchepay
-description: "ScorchePay — Money OS. Unified wallet, Smart Pay and invisible crypto in one app."
+description: 'ScorchePay — Money OS. Unified wallet, Smart Pay and invisible crypto in one app.'
 publish_to: 'none'
 version: 0.1.0
 
@@ -14,7 +14,8 @@ dependencies:
   flutter_riverpod: ^2.5.1
   go_router: ^14.8.1
   shared_preferences: ^2.2.3
-  flutter_secure_storage: ^9.2.2
+  flutter_secure_storage: ^11.2.0
+  passkeys: ^2.23.1
   uuid: ^4.4.0
   image_picker: ^1.1.2
 
@@ -32,6 +33,6 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon_source.png"
-  adaptive_icon_background: "#0A0A0B"
-  adaptive_icon_foreground: "assets/adaptive_fg_red.png"
+  image_path: 'assets/icon_source.png'
+  adaptive_icon_background: '#0A0A0B'
+  adaptive_icon_foreground: 'assets/adaptive_fg_red.png'
