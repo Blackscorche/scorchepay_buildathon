@@ -95,10 +95,38 @@ and a screen lock.
 
 Then in Xcode, for the Runner target: Signing & Capabilities → + Capability →
 Associated Domains → add `webcredentials:your-domain.com` (iOS and macOS
-targets). This needs a paid Apple developer team. While developing,
-`webcredentials:your-domain.com?mode=developer` skips Apple's CDN cache
-(enable Associated Domains Development in the device's Developer settings).
+targets). This needs a paid Apple developer team; the free personal team
+can't add Associated Domains. There's no way to use passkeys in an Apple app
+without this link: missing either half fails with "Passkeys aren't set up for
+this app yet" (`DomainNotAssociatedException`).
+
+### Development mode (iOS and macOS)
+
+Normally Apple's CDN fetches and caches the association file, so the domain
+must be public and changes can take a day or more to reach devices. For
+development builds you can bypass the CDN so the device fetches the file
+directly from your server:
+
+1. Use `webcredentials:your-domain.com?mode=developer` as the Associated
+   Domains entry.
+2. Turn developer mode on for the device:
+   - iPhone/iPad: Settings → Developer → Associated Domains Development.
+   - Mac: `sudo swcutil developer-mode -e true`.
+
+Then edits to the file apply right away, and the domain only has to be
+reachable from the test device (a staging or tunnel host works) rather than
+from Apple.
+
+What development mode does **not** skip: the entitlement, the paid team, the
+association file itself, and HTTPS with a certificate the device trusts. It
+also only applies to development-signed builds; TestFlight and App Store
+builds ignore `?mode=developer` and always go through Apple's CDN, so release
+builds need a plain `webcredentials:your-domain.com` entry and a public file.
+
 Simulators need Face ID enrolled (Features → Face ID → Enrolled).
+
+Without a paid team, test passkeys on web (`localhost`, no setup) or Android
+(`assetlinks.json` only); on iOS the app falls back to PIN login.
 
 ## Backend contract
 
