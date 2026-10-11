@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../core/app_icons.dart';
+import '../../core/async_action.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/otp_boxes.dart';
@@ -25,11 +26,10 @@ class OtpVerificationScreen extends ConsumerStatefulWidget {
       _OtpVerificationScreenState();
 }
 
-class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
+class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen>
+    with AsyncActionMixin {
   late SignUpDraft _draft = widget.draft;
   String _code = '';
-  bool _busy = false;
-  String? _error;
   int _secondsLeft = 30;
   Timer? _timer;
 
@@ -64,46 +64,23 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   }
 
   Future<void> _verify() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final signUpToken = await ref
-          .read(backendServiceProvider)
-          .verifySignUpCode(_draft.verificationId, _code);
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(
-            builder: (_) => CreatePinScreen(
-                draft: _draft.copyWith(signUpToken: signUpToken))),
-      );
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final result = await runAction(() => ref
+        .read(backendServiceProvider)
+        .verifySignUpCode(_draft.verificationId, _code));
+    if (!mounted || !result.hasValue) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+          builder: (_) => CreatePinScreen(
+              draft: _draft.copyWith(signUpToken: result.requireValue))),
+    );
   }
 
   Future<void> _resend() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final verificationId = await ref
-          .read(backendServiceProvider)
-          .requestSignUpCode(_draft.contact);
-      if (!mounted) return;
-      _draft = _draft.copyWith(verificationId: verificationId);
-      _startTimer();
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final result = await runAction(() =>
+        ref.read(backendServiceProvider).requestSignUpCode(_draft.contact));
+    if (!mounted || !result.hasValue) return;
+    _draft = _draft.copyWith(verificationId: result.requireValue);
+    _startTimer();
   }
 
   @override
@@ -138,15 +115,15 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                   const SizedBox(height: 32),
                   OtpBoxes(
                     length: 6,
-                    onChanged: (v) => setState(() {
-                      _code = v;
-                      _error = null;
-                    }),
+                    onChanged: (v) {
+                      clearActionError();
+                      setState(() => _code = v);
+                    },
                     onCompleted: _onCompleted,
                   ),
-                  if (_error != null) ...[
+                  if (actionError case final error?) ...[
                     const SizedBox(height: 12),
-                    Text(_error!, style: TextStyle(color: AppColors.loss)),
+                    Text(error, style: TextStyle(color: AppColors.loss)),
                   ],
                   const SizedBox(height: 20),
                   Center(
@@ -169,8 +146,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                   const SizedBox(height: 32),
                   PrimaryButton(
                     label: 'Verify',
-                    loading: _busy,
-                    onPressed: _code.length == 6 && !_busy ? _verify : null,
+                    loading: actionRunning,
+                    onPressed:
+                        _code.length == 6 && !actionRunning ? _verify : null,
                   ),
                 ],
               ),

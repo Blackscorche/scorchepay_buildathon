@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/app_icons.dart';
+import '../../core/async_action.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../state/models/sign_up_draft.dart';
@@ -23,37 +24,27 @@ class BiometricPromptScreen extends ConsumerStatefulWidget {
       _BiometricPromptScreenState();
 }
 
-class _BiometricPromptScreenState extends ConsumerState<BiometricPromptScreen> {
-  bool _busy = false;
-  String? _error;
-
+class _BiometricPromptScreenState extends ConsumerState<BiometricPromptScreen>
+    with AsyncActionMixin {
   Future<void> _proceed({required bool addPasskey}) async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
     // The app-wide messenger outlives this screen, which the router
-    // replaces with home once signed in.
+    // replaces with home once signed in, so it's captured up front.
     final messenger = ScaffoldMessenger.of(context);
-    try {
-      final result = await ref
-          .read(appStateProvider.notifier)
-          .signUp(widget.draft, registerPasskey: addPasskey);
-      final problems = [
-        if (result.photoError != null)
-          "Your photo wasn't saved: ${result.photoError}",
-        if (result.passkeyError != null)
-          'No passkey was added: ${result.passkeyError}',
-      ];
-      if (problems.isNotEmpty) {
-        messenger.showSnackBar(SnackBar(
-            content: Text("You're signed up. ${problems.join(' ')}")));
-      }
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
+    final notifier = ref.read(appStateProvider.notifier);
+    final result = await runAction(
+        () => notifier.signUp(widget.draft, registerPasskey: addPasskey));
+    // Failure: shown on this screen via actionError.
+    final signUp = result.valueOrNull;
+    if (signUp == null) return;
+    final problems = [
+      if (signUp.photoError != null)
+        "Your photo wasn't saved: ${signUp.photoError}",
+      if (signUp.passkeyError != null)
+        'No passkey was added: ${signUp.passkeyError}',
+    ];
+    if (problems.isNotEmpty) {
+      messenger.showSnackBar(SnackBar(
+          content: Text("You're signed up. ${problems.join(' ')}")));
     }
   }
 
@@ -96,8 +87,8 @@ class _BiometricPromptScreenState extends ConsumerState<BiometricPromptScreen> {
                     style: AppText.bodyMuted,
                   ),
                   const Spacer(flex: 4),
-                  if (_error != null) ...[
-                    Text(_error!,
+                  if (actionError case final error?) ...[
+                    Text(error,
                         textAlign: TextAlign.center,
                         style: TextStyle(color: AppColors.loss)),
                     const SizedBox(height: 12),
@@ -105,20 +96,20 @@ class _BiometricPromptScreenState extends ConsumerState<BiometricPromptScreen> {
                   if (available) ...[
                     PrimaryButton(
                         label: 'Enable',
-                        loading: _busy,
+                        loading: actionRunning,
                         onPressed:
-                            _busy ? null : () => _proceed(addPasskey: true)),
+                            actionRunning ? null : () => _proceed(addPasskey: true)),
                     const SizedBox(height: 10),
                     SecondaryButton(
                         label: 'Maybe later',
                         onPressed:
-                            _busy ? null : () => _proceed(addPasskey: false)),
+                            actionRunning ? null : () => _proceed(addPasskey: false)),
                   ] else
                     PrimaryButton(
                         label: 'Continue',
-                        loading: _busy,
+                        loading: actionRunning,
                         onPressed:
-                            _busy ? null : () => _proceed(addPasskey: false)),
+                            actionRunning ? null : () => _proceed(addPasskey: false)),
                   const SizedBox(height: 16),
                 ],
               ),

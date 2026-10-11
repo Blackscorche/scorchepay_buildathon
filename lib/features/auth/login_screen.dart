@@ -7,6 +7,7 @@ import '../../state/services/passkey_service.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../app_routes.dart';
 import '../../core/app_icons.dart';
+import '../../core/async_action.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/pin_dots.dart';
@@ -22,11 +23,10 @@ class LoginScreen extends ConsumerStatefulWidget {
   ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends ConsumerState<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen>
+    with AsyncActionMixin {
   late final TextEditingController _contactController;
   String _pin = '';
-  bool _busy = false;
-  String? _error;
 
   @override
   void initState() {
@@ -42,48 +42,25 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _onKey(String digit) {
-    if (_busy || _pin.length >= 4) return;
-    setState(() {
-      _pin += digit;
-      _error = null;
-    });
+    if (actionRunning || _pin.length >= 4) return;
+    clearActionError();
+    setState(() => _pin += digit);
     if (_pin.length == 4) _login();
   }
 
+  // On success the router navigates on once the session is signed in;
+  // failures show via actionError.
   Future<void> _login() async {
-    setState(() => _busy = true);
-    try {
-      await ref
-          .read(appStateProvider.notifier)
-          .login(_contactController.text, _pin);
-      // ScorchePayApp navigates home once the session is signed in.
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _error = error.toString();
-          _pin = '';
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final result = await runAction(() => ref
+        .read(appStateProvider.notifier)
+        .login(_contactController.text, _pin));
+    if (mounted && result.hasError) setState(() => _pin = '');
   }
 
   Future<void> _loginWithPasskey() async {
-    if (_busy) return;
-    setState(() {
-      _busy = true;
-      _error = null;
-      _pin = '';
-    });
-    try {
-      await ref.read(appStateProvider.notifier).loginWithPasskey();
-      // The router navigates on once the session is signed in.
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    setState(() => _pin = '');
+    await runAction(
+        () => ref.read(appStateProvider.notifier).loginWithPasskey());
   }
 
   /// Back to Welcome (e.g. to create a new account). Login is nested
@@ -98,7 +75,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   void _onBackspace() {
-    if (_busy || _pin.isEmpty) return;
+    if (actionRunning || _pin.isEmpty) return;
     setState(() => _pin = _pin.substring(0, _pin.length - 1));
   }
 
@@ -144,7 +121,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       const SizedBox(height: 24),
                       TextField(
                         controller: _contactController,
-                        enabled: !_busy,
+                        enabled: !actionRunning,
                         decoration:
                             const InputDecoration(labelText: 'Username'),
                       ),
@@ -159,7 +136,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                         children: [
                           if (passkeysAvailable)
                             TextButton.icon(
-                              onPressed: _busy ? null : _loginWithPasskey,
+                              onPressed: actionRunning ? null : _loginWithPasskey,
                               icon: Icon(AppIcons.fingerprint,
                                   size: 18, color: AppColors.accent),
                               label: Text(
@@ -185,9 +162,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                           ),
                         ],
                       ),
-                      if (_busy) const LinearProgressIndicator(),
-                      if (_error != null)
-                        Text(_error!, style: TextStyle(color: AppColors.loss)),
+                      if (actionRunning) const LinearProgressIndicator(),
+                      if (actionError case final error?)
+                        Text(error, style: TextStyle(color: AppColors.loss)),
                       NumericKeypad(onKey: _onKey, onBackspace: _onBackspace),
                       const SizedBox(height: 8),
                     ],

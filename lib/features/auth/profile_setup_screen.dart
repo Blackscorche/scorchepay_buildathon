@@ -5,6 +5,7 @@ import '../../state/services/backend_service.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/app_icons.dart';
+import '../../core/async_action.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/decorative_rings.dart';
 import '../../core/widgets/photo_picker_sheet.dart';
@@ -28,16 +29,14 @@ class ProfileSetupScreen extends ConsumerStatefulWidget {
   ConsumerState<ProfileSetupScreen> createState() => _ProfileSetupScreenState();
 }
 
-class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
+class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen>
+    with AsyncActionMixin {
   final _usernameController = TextEditingController();
   late final _nameController =
       TextEditingController(text: widget.draft.displayName);
   late Uint8List? _photo = widget.draft.photo;
-  bool _busy = false;
-  String? _usernameError;
-
   bool get _canContinue =>
-      !_busy && _usernameController.text.trim().length >= 3;
+      !actionRunning && _usernameController.text.trim().length >= 3;
 
   @override
   void dispose() {
@@ -61,19 +60,10 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
     final name = _nameController.text.trim().isNotEmpty
         ? _nameController.text.trim()
         : uname;
-    setState(() {
-      _busy = true;
-      _usernameError = null;
-    });
-    try {
-      await ref.read(backendServiceProvider).checkUsernameAvailable(uname);
-    } catch (error) {
-      if (mounted) setState(() => _usernameError = error.toString());
-      return;
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-    if (!mounted) return;
+    // A failure here is about the username, so it shows under that field.
+    final result = await runAction(
+        () => ref.read(backendServiceProvider).checkUsernameAvailable(uname));
+    if (!mounted || !result.hasValue) return;
     Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => BiometricPromptScreen(
             draft: widget.draft.copyWith(
@@ -172,13 +162,16 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _usernameController,
-                    enabled: !_busy,
-                    onChanged: (_) => setState(() => _usernameError = null),
+                    enabled: !actionRunning,
+                    onChanged: (_) {
+                      clearActionError();
+                      setState(() {}); // re-evaluate _canContinue
+                    },
                     decoration: InputDecoration(
                       labelText: 'Username',
                       hintText: 'e.g. scorche',
                       prefixText: '@',
-                      errorText: _usernameError,
+                      errorText: actionError,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -187,7 +180,7 @@ class _ProfileSetupScreenState extends ConsumerState<ProfileSetupScreen> {
                   const Spacer(),
                   PrimaryButton(
                       label: 'Continue',
-                      loading: _busy,
+                      loading: actionRunning,
                       onPressed: _canContinue ? _onContinue : null),
                   const SizedBox(height: 16),
                 ],

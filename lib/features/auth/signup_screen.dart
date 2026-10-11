@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../state/services/backend_service.dart';
 import '../../app_routes.dart';
+import '../../core/async_action.dart';
 import '../../core/widgets/scorch_mascot.dart';
 import '../../core/app_icons.dart';
 import '../../core/widgets/buttons.dart';
@@ -22,14 +23,13 @@ class SignUpScreen extends ConsumerStatefulWidget {
   ConsumerState<SignUpScreen> createState() => _SignUpScreenState();
 }
 
-class _SignUpScreenState extends ConsumerState<SignUpScreen> {
+class _SignUpScreenState extends ConsumerState<SignUpScreen>
+    with AsyncActionMixin {
   final _nameController = TextEditingController();
   final _contactController = TextEditingController();
-  bool _busy = false;
-  String? _error;
 
   bool get _canContinue =>
-      !_busy &&
+      !actionRunning &&
       _nameController.text.trim().isNotEmpty &&
       _contactController.text.trim().isNotEmpty;
 
@@ -40,32 +40,25 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     super.dispose();
   }
 
-  void _onEdited(String _) => setState(() => _error = null);
+  void _onEdited(String _) {
+    clearActionError();
+    setState(() {}); // re-evaluate _canContinue
+  }
 
   Future<void> _onContinue() async {
     final contact = _contactController.text.trim();
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
-    try {
-      final verificationId =
-          await ref.read(backendServiceProvider).requestSignUpCode(contact);
-      if (!mounted) return;
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => OtpVerificationScreen(
-              draft: SignUpDraft(
-                  displayName: _nameController.text.trim(),
-                  contact: contact,
-                  verificationId: verificationId)),
-        ),
-      );
-    } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    final result = await runAction(
+        () => ref.read(backendServiceProvider).requestSignUpCode(contact));
+    if (!mounted || !result.hasValue) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => OtpVerificationScreen(
+            draft: SignUpDraft(
+                displayName: _nameController.text.trim(),
+                contact: contact,
+                verificationId: result.requireValue)),
+      ),
+    );
   }
 
   @override
@@ -97,7 +90,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                   const SizedBox(height: 28),
                   TextField(
                     controller: _nameController,
-                    enabled: !_busy,
+                    enabled: !actionRunning,
                     onChanged: _onEdited,
                     decoration: const InputDecoration(
                       labelText: 'Full name',
@@ -107,21 +100,21 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                   const SizedBox(height: 16),
                   TextField(
                     controller: _contactController,
-                    enabled: !_busy,
+                    enabled: !actionRunning,
                     onChanged: _onEdited,
                     decoration: const InputDecoration(
                       labelText: 'Phone number or email',
                       hintText: 'e.g. +234 801 234 5678',
                     ),
                   ),
-                  if (_error != null) ...[
+                  if (actionError case final error?) ...[
                     const SizedBox(height: 12),
-                    Text(_error!, style: TextStyle(color: AppColors.loss)),
+                    Text(error, style: TextStyle(color: AppColors.loss)),
                   ],
                   const SizedBox(height: 28),
                   PrimaryButton(
                     label: 'Continue',
-                    loading: _busy,
+                    loading: actionRunning,
                     onPressed: _canContinue ? _onContinue : null,
                   ),
                   const Spacer(),
