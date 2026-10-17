@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../app_env_vars.dart';
 import '../models/kyc.dart';
 import '../providers/app_state.dart';
 
@@ -50,7 +51,7 @@ class BackendService {
   /// e.g. `localhost` in development. Elsewhere, no define means passkeys
   /// stay off.
   static String get passkeyRpId {
-    const configured = String.fromEnvironment('PASSKEY_RP_ID');
+    const configured = String.fromEnvironment(AppEnvVars.passkeyRpId);
     if (configured.isNotEmpty) return configured;
     return kIsWeb ? Uri.base.host : '';
   }
@@ -104,6 +105,7 @@ class BackendService {
     final account = await _accountFor(token);
     return AppState(
         token: token,
+        userId: account.id,
         displayName: account.displayName,
         kyc: account.kyc,
         photoUrl: account.photoUrl,

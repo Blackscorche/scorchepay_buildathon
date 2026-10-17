@@ -21,6 +21,7 @@ import '../services/fx_rate_service.dart';
 import '../services/ledger_service.dart';
 import '../services/local_store.dart';
 import '../services/passkey_service.dart';
+import '../services/secure_storage_keys.dart';
 import '../services/savings_service.dart';
 import '../services/simulated_providers.dart';
 import '../services/smart_pay_engine.dart';
@@ -48,7 +49,6 @@ const _uuid = Uuid();
 /// persists the device-local slice to disk. Backend data — identity and
 /// the token — is never written to [LocalStore].
 class AppStateNotifier extends AsyncNotifier<AppState> {
-  static const _tokenKey = 'auth_token';
 
   BackendService get _backend => ref.read(backendServiceProvider);
   PasskeyAuthenticator get _passkeys => ref.read(passkeyAuthenticatorProvider);
@@ -68,7 +68,7 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
     // previous value on a reload), and ScorchePayApp shows the error and
     // decides whether to recover via [continueSignedOut].
     final local = await _store.load();
-    final token = await _secure.read(key: _tokenKey);
+    final token = await _secure.read(key: SecureStorageKeys.authToken);
     if (token == null) return AppState.signedOut(local);
 
     try {
@@ -200,7 +200,7 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
 
   /// Stores [token] and loads the signed-in state for it.
   Future<void> _startSession(String token) async {
-    await _secure.write(key: _tokenKey, value: token);
+    await _secure.write(key: SecureStorageKeys.authToken, value: token);
     try {
       await _reload(); // throws if build() fails
     } on AuthException {
@@ -231,7 +231,7 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
 
   Future<void> _deleteToken() async {
     try {
-      await _secure.delete(key: _tokenKey);
+      await _secure.delete(key: SecureStorageKeys.authToken);
     } catch (_) {}
   }
 

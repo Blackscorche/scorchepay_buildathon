@@ -16,8 +16,11 @@ dependencies:
   shared_preferences: ^2.2.3
   flutter_secure_storage: ^11.2.0
   passkeys: ^2.23.1
+  ndk: ^0.10.1
+  ndk_flutter: ^0.10.1
   uuid: ^4.4.0
   image_picker: ^1.1.2
+  intl: ^0.20.3
 
 dev_dependencies:
   flutter_test:

@@ -20,6 +20,7 @@ const _uuid = Uuid();
 class AppState {
   AppState({
     this.token,
+    this.userId,
     required this.displayName,
     this.kyc = const KycInfo.initial(),
     this.photoUrl,
@@ -29,6 +30,10 @@ class AppState {
   /// Session token — present only while signed in. Persisted in secure
   /// storage by `AppStateNotifier`, never in [LocalAppState].
   final String? token;
+
+  /// The backend's stable account ID (usernames can change). Null while
+  /// signed out. Keys per-account data on the device, e.g. wallets.
+  final String? userId;
   final String displayName;
 
   /// KYC tier and status — backend-derived, never computed or stored on
@@ -122,6 +127,7 @@ class AppState {
   AppState clone() {
     return AppState(
       token: token,
+      userId: userId,
       displayName: displayName,
       kyc: kyc,
       photoUrl: photoUrl,

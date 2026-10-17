@@ -7,10 +7,7 @@ import '../../core/widgets/buttons.dart';
 import '../../core/widgets/icon_action_button.dart';
 import '../../core/widgets/kyc_status_badge.dart';
 import '../../core/widgets/section_title.dart';
-import '../../core/widgets/token_badge.dart';
 import '../../data/coingecko_service.dart';
-import '../../data/mock_data.dart';
-import '../../data/models.dart';
 import '../../state/providers/app_state_notifier.dart';
 import '../../state/providers/profile_provider.dart';
 import '../../theme/app_colors.dart';
@@ -18,26 +15,10 @@ import '../../theme/app_text_styles.dart';
 import '../bills/airtime_screen.dart';
 import '../bills/bill_payment_screen.dart';
 import '../bills/data_screen.dart';
+import '../wallet/wallet_section.dart';
 
-double _parseHolding(String holding) =>
-    double.tryParse(holding.replaceAll(',', '')) ?? 0;
-
-String _formatPrice(double price) {
-  final isWhole = price == price.roundToDouble();
-  final s = isWhole ? price.toStringAsFixed(0) : price.toStringAsFixed(2);
-  final parts = s.split('.');
-  final intPart = parts[0];
-  final buf = StringBuffer();
-  for (int i = 0; i < intPart.length; i++) {
-    if (i != 0 && (intPart.length - i) % 3 == 0) buf.write(',');
-    buf.write(intPart[i]);
-  }
-  if (parts.length > 1) buf.write('.${parts[1]}');
-  return buf.toString();
-}
-
-/// The entire app, trimmed to one screen: VTU/bill payments and a
-/// read-only crypto balance view. No send money, escrow, savings, P2P,
+/// The entire app, trimmed to one screen: VTU/bill payments and the
+/// user's connected Lightning wallets. No send money, escrow, savings, P2P,
 /// gift cards, merchant/admin tooling or server-backed "live" mode —
 /// this branch intentionally doesn't have those pages at all.
 class VtuDashboardScreen extends ConsumerStatefulWidget {
@@ -48,8 +29,9 @@ class VtuDashboardScreen extends ConsumerStatefulWidget {
 }
 
 class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
-  List<CryptoAsset> _assets = MockData.crypto;
-  bool _live = false;
+  /// Live BTC price in USD for the wallet's dollar estimate; null until
+  /// loaded (or when offline).
+  double? _btcUsd;
 
   @override
   void initState() {
@@ -61,20 +43,9 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
     try {
       final prices = await CoinGeckoService.getPrices();
       if (!mounted) return;
-      setState(() {
-        _assets = [
-          for (final a in MockData.crypto)
-            prices.containsKey(a.symbol)
-                ? a.copyWith(
-                    price: prices[a.symbol]!.price,
-                    changePct: prices[a.symbol]!.changePct,
-                    logoUrl: prices[a.symbol]!.logoUrl)
-                : a,
-        ];
-        _live = true;
-      });
+      setState(() => _btcUsd = prices['BTC']?.price);
     } catch (_) {
-      // Offline or rate-limited — the bundled mock prices already cover it.
+      // Offline or rate-limited: the wallet shows sats only.
     }
   }
 
@@ -107,9 +78,6 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
           const SnackBar(content: Text('Could not log out. Please try again.')));
     }
   }
-
-  double get _totalValue => _assets.fold<double>(
-      0, (sum, a) => sum + _parseHolding(a.holding) * a.price);
 
   @override
   Widget build(BuildContext context) {
@@ -172,62 +140,8 @@ class _VtuDashboardScreenState extends ConsumerState<VtuDashboardScreen> {
                 },
               ),
             ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const SectionTitle('Crypto Balances'),
-                if (_live)
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                        color: AppColors.gain.withValues(alpha: 0.14),
-                        borderRadius: BorderRadius.circular(20)),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(AppIcons.bolt, size: 10, color: AppColors.gain),
-                        SizedBox(width: 3),
-                        Text('Live · CoinGecko',
-                            style: TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: AppColors.gain)),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-            AppCard(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('TOTAL VALUE',
-                      style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: AppColors.muted,
-                          letterSpacing: 0.7)),
-                  const SizedBox(height: 8),
-                  Text('\$${_formatPrice(_totalValue)}',
-                      style: AppText.heroNumber.copyWith(fontSize: 28)),
-                ],
-              ),
-            ),
-            AppCard(
-              padding: const EdgeInsets.fromLTRB(18, 4, 18, 4),
-              child: Column(
-                children: [
-                  for (int i = 0; i < _assets.length; i++)
-                    _BalanceRow(
-                      asset: _assets[i],
-                      showDivider: i != _assets.length - 1,
-                    ),
-                ],
-              ),
-            ),
+            const SectionTitle('Wallet'),
+            WalletSection(btcUsdPrice: _btcUsd),
           ],
         ),
       ),
@@ -314,85 +228,3 @@ final List<_VtuEntry> _vtuEntries = [
             payLabel: 'Fund Wallet',
           )),
 ];
-
-/// Read-only holding row — no tap-to-trade, this branch has no trading UI.
-class _BalanceRow extends StatelessWidget {
-  const _BalanceRow({required this.asset, this.showDivider = true});
-
-  final CryptoAsset asset;
-  final bool showDivider;
-
-  @override
-  Widget build(BuildContext context) {
-    final changeColor = asset.changePct > 0
-        ? AppColors.gain
-        : asset.changePct < 0
-            ? AppColors.loss
-            : AppColors.muted;
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 12),
-      decoration: BoxDecoration(
-        border: showDivider
-            ? Border(bottom: BorderSide(color: AppColors.hairline))
-            : null,
-      ),
-      child: Row(
-        children: [
-          TokenBadge(
-              glyph: asset.glyph, color: asset.color, logoUrl: asset.logoUrl),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(text: asset.name, style: AppText.body),
-                      TextSpan(
-                          text: '  ${asset.symbol}',
-                          style: TextStyle(
-                              color: AppColors.muted,
-                              fontWeight: FontWeight.w500,
-                              fontSize: 11.5)),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text('${asset.holding} ${asset.symbol}',
-                    style: AppText.caption),
-              ],
-            ),
-          ),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              Text('\$${_formatPrice(asset.price)}',
-                  style: AppText.tabular
-                      .copyWith(fontWeight: FontWeight.w700, fontSize: 13.5)),
-              const SizedBox(height: 3),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (asset.changePct != 0)
-                    Icon(
-                        asset.changePct > 0
-                            ? AppIcons.arrowUpRight
-                            : AppIcons.arrowDownRight,
-                        size: 11,
-                        color: changeColor),
-                  Text('${asset.changePct.abs()}%',
-                      style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: changeColor)),
-                ],
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
