@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/shared_prefs_keys.dart';
 
 /// A curated set of accent colors for the Appearance picker — kept as a
 /// fixed palette (rather than a free-form color wheel) so every combo
@@ -33,12 +34,10 @@ class AccentColorNotifier extends StateNotifier<Color> {
     _loadFromPrefs();
   }
 
-  static const _key = 'app_accent_color';
-
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getInt(_key);
+      final saved = prefs.getInt(SharedPrefsKeys.accentColor);
       if (saved != null) state = Color(saved);
     } catch (_) {}
   }
@@ -47,7 +46,7 @@ class AccentColorNotifier extends StateNotifier<Color> {
     state = color;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setInt(_key, color.toARGB32());
+      await prefs.setInt(SharedPrefsKeys.accentColor, color.toARGB32());
     } catch (_) {}
   }
 }

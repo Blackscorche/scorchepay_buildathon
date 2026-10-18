@@ -12,6 +12,7 @@ import 'package:ndk/ndk.dart'
 import 'package:ndk_flutter/ndk_flutter.dart' show NdkEventVerifier;
 
 import '../../app_env_vars.dart';
+import 'mock_lightning.dart';
 
 /// Picks the wallet implementation. `--dart-define=MOCK_WALLETS=true` uses
 /// [MockWalletService], which needs no real wallet or relay.
@@ -279,8 +280,10 @@ class NwcWalletService extends WalletService {
 }
 
 /// For development without a real wallet. Accepts any well-formed
-/// connection string; the balance is made up but stable per string.
-/// Invoices containing "fail" or "budget" fail with the matching error.
+/// connection string. Balances start from a made-up amount per string and
+/// go down as it pays; payments settle through [MockLightning], so the mock
+/// VTU backend sees them. Invoices containing "fail" or "budget" fail with
+/// the matching error.
 class MockWalletService extends WalletService {
   static const _latency = Duration(milliseconds: 600);
 
@@ -297,17 +300,30 @@ class MockWalletService extends WalletService {
     );
   }
 
+  /// Sats spent per connection this run, so balances go down after paying.
+  final _spent = <String, int>{};
+
+  /// Starting balances, picked per connection string: some wallets are too
+  /// low for bigger bills, so switching wallets is worth trying.
+  static const _startingBalances = [1500, 9000, 48000, 260000];
+
   @override
   Future<int> getBalanceSats(String connectionUri) async {
     await Future.delayed(_latency);
-    final seed = connectionUri.trim().codeUnits.fold<int>(0, (a, b) => a + b);
-    return 25000 + (seed * 7919) % 475000;
+    return _balance(connectionUri.trim());
+  }
+
+  int _balance(String uri) {
+    final seed = uri.codeUnits.fold<int>(0, (a, b) => a + b);
+    final start = _startingBalances[seed % _startingBalances.length];
+    return start - (_spent[uri] ?? 0);
   }
 
   @override
   Future<String> payInvoice(String connectionUri, String invoice,
       {Duration timeout = const Duration(minutes: 2)}) async {
     await Future.delayed(_latency * 2);
+    final uri = connectionUri.trim();
     if (invoice.contains('budget')) {
       throw const WalletException(WalletErrorCode.quotaExceeded,
           'This is over the budget you set for ScorchePay in your wallet.');
@@ -316,6 +332,18 @@ class MockWalletService extends WalletService {
       throw const WalletException(WalletErrorCode.paymentFailed,
           "Your wallet couldn't complete the payment. Try again.");
     }
+    final sats = MockLightning.invoiceSats(invoice) ?? 0;
+    if (sats > _balance(uri)) {
+      throw const WalletException(WalletErrorCode.insufficientBalance,
+          "Your wallet doesn't have enough funds for this.");
+    }
+    try {
+      MockLightning.pay(invoice);
+    } on StateError {
+      throw const WalletException(WalletErrorCode.paymentFailed,
+          'This invoice has expired. Get a new quote and try again.');
+    }
+    _spent[uri] = (_spent[uri] ?? 0) + sats;
     return 'mock-preimage-${DateTime.now().millisecondsSinceEpoch}';
   }
 

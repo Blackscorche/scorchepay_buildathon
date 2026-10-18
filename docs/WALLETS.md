@@ -28,7 +28,7 @@ ask them to approve each payment.
 | --- | --- |
 | NWC client (on `ndk` + `ndk_flutter`'s verifier) and mock | `lib/state/services/wallet_service.dart` |
 | Storage | `lib/state/services/wallet_store.dart` |
-| State (`walletsProvider`, `currentWalletBalanceProvider`) | `lib/state/providers/wallets_provider.dart` |
+| State (`walletsProvider`, `walletBalanceProvider`) | `lib/state/providers/wallets_provider.dart` |
 | Dashboard section, switcher sheet, connect screen | `lib/features/wallet/` |
 
 Connection strings can spend up to the connection's budget, so they are

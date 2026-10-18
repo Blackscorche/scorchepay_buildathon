@@ -229,6 +229,13 @@ class AppStateNotifier extends AsyncNotifier<AppState> {
     await _reload();
   }
 
+  /// Verifies the user's identity to raise their KYC tier (and limits),
+  /// then reloads the session so the new tier shows everywhere.
+  Future<void> verifyIdentity() async {
+    await _backend.verifyIdentity(_appState.requireToken);
+    await _reload();
+  }
+
   Future<void> _deleteToken() async {
     try {
       await _secure.delete(key: SecureStorageKeys.authToken);

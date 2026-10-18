@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 
 import '../../core/app_icons.dart';
+import '../../core/formatters.dart';
 import '../../core/widgets/app_card.dart';
 import '../../core/widgets/buttons.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../state/models/connected_wallet.dart';
+import '../../state/providers/app_state_notifier.dart';
+import '../../state/providers/prices_provider.dart';
 import '../../state/providers/wallets_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
@@ -15,11 +17,10 @@ import 'wallet_switcher_sheet.dart';
 
 /// Dashboard section for the user's Lightning wallets: a prompt to connect
 /// one, or the current wallet's balance. Tapping the wallet opens the
-/// switcher. [btcUsdPrice] (when known) adds a dollar estimate.
+/// switcher. The balance comes with an estimate in the user's preferred
+/// currency once the live BTC price loads.
 class WalletSection extends ConsumerWidget {
-  const WalletSection({super.key, this.btcUsdPrice});
-
-  final double? btcUsdPrice;
+  const WalletSection({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -40,7 +41,7 @@ class WalletSection extends ConsumerWidget {
       data: (state) {
         final current = state.current;
         if (current == null) return const _ConnectWalletCard();
-        return _CurrentWalletCard(wallet: current, btcUsdPrice: btcUsdPrice);
+        return _CurrentWalletCard(wallet: current);
       },
     );
   }
@@ -86,14 +87,17 @@ class _ConnectWalletCard extends StatelessWidget {
 }
 
 class _CurrentWalletCard extends ConsumerWidget {
-  const _CurrentWalletCard({required this.wallet, this.btcUsdPrice});
+  const _CurrentWalletCard({required this.wallet});
 
   final ConnectedWallet wallet;
-  final double? btcUsdPrice;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final balance = ref.watch(currentWalletBalanceProvider);
+    final balance = ref.watch(walletBalanceProvider(wallet.id));
+    // Offline or rate-limited: no estimate, just sats.
+    final btcPrice = ref.watch(btcPriceProvider).valueOrNull;
+    final currency = ref.watch(appStateProvider
+        .select((s) => s.requireValue.localState.preferredCurrency));
     final ConnectedWallet(:testNetworkLabel, :detailLine) = wallet;
     return AppCard(
       onTap: () => showWalletSwitcher(context),
@@ -114,7 +118,10 @@ class _CurrentWalletCard extends ConsumerWidget {
                 StatusBadge(label: testNetworkLabel, tone: BadgeTone.info),
               const Spacer(),
               GestureDetector(
-                onTap: () => ref.invalidate(currentWalletBalanceProvider),
+                onTap: () {
+                  ref.invalidate(walletBalanceProvider(wallet.id));
+                  ref.invalidate(btcPriceProvider);
+                },
                 child: Icon(AppIcons.refresh, size: 16, color: AppColors.muted),
               ),
             ],
@@ -157,16 +164,14 @@ class _CurrentWalletCard extends ConsumerWidget {
             error: (error, _) => Text(error.toString(),
                 style: AppText.bodyMuted.copyWith(color: AppColors.loss)),
             data: (sats) {
-              if (sats == null) return const SizedBox.shrink();
-              final usd =
-                  btcUsdPrice == null ? null : sats / 100000000 * btcUsdPrice!;
+              final converted = btcPrice == null ? null : sats / 1e8 * btcPrice;
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('${groupDigits(sats)} sats',
+                  Text(formatSats(sats),
                       style: AppText.heroNumber.copyWith(fontSize: 28)),
-                  if (usd != null)
-                    Text('≈ \$${usd.toStringAsFixed(2)}',
+                  if (converted != null)
+                    Text('≈ ${formatFiatDecimal(converted, currency)}',
                         style: AppText.caption),
                 ],
               );
@@ -176,10 +181,4 @@ class _CurrentWalletCard extends ConsumerWidget {
       ),
     );
   }
-}
-
-/// 1234567 -> "1,234,567".
-String groupDigits(int value) {
-  // Uses standard commas for grouping based on the locale (default is usually en_US)
-  return NumberFormat.decimalPattern().format(value);
 }

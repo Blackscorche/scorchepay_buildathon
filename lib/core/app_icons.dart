@@ -10,6 +10,8 @@ class AppIcons {
   AppIcons._();
 
   static const IconData home = Icons.home_rounded;
+  static const IconData radioOn = Icons.radio_button_checked_rounded;
+  static const IconData radioOff = Icons.radio_button_off_rounded;
   static const IconData homeOutline = Icons.home_outlined;
   static const IconData wallet = Icons.account_balance_wallet_rounded;
   static const IconData walletOutline = Icons.account_balance_wallet_outlined;

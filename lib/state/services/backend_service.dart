@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../../app_env_vars.dart';
 import '../models/kyc.dart';
 import '../providers/app_state.dart';
+import 'shared_prefs_keys.dart';
 
 final backendServiceProvider =
     Provider<BackendService>((ref) => BackendService());
@@ -57,7 +58,6 @@ class BackendService {
   }
 
   static const _latency = Duration(milliseconds: 300);
-  static const _dbKey = 'mock_backend_db_v1';
   static const _tokenPrefix = 'mock-token-';
 
   // Account IDs never change (usernames can), so tokens are built from
@@ -130,6 +130,30 @@ class BackendService {
   }
 
   // ---------------------------------------------------------------------
+  // KYC
+  // ---------------------------------------------------------------------
+
+  /// The account behind [token]'s stable ID and KYC, for other services
+  /// (e.g. the VTU API's limits).
+  Future<({String accountId, KycInfo kyc})> accountSummary(String token) async {
+    final account = await _accountFor(token);
+    return (accountId: account.id, kyc: account.kyc);
+  }
+
+  /// Verifies the user with the KYC provider (Mono myPass). The real flow
+  /// opens the provider and waits for its callback; the mock approves Tier
+  /// 1 after a short delay.
+  Future<KycInfo> verifyIdentity(String token) async {
+    await Future.delayed(const Duration(seconds: 2));
+    final account = await _accountFor(token);
+    if (account.kyc.tier < 1) {
+      account.kyc = const KycInfo(tier: 1, status: KycStatus.verified);
+      await _save();
+    }
+    return account.kyc;
+  }
+
+  // ---------------------------------------------------------------------
   // Profile photo
   // ---------------------------------------------------------------------
   //
@@ -156,7 +180,7 @@ class BackendService {
       throw const AuthException('Use a JPEG, PNG, WebP, HEIC or GIF photo.');
     }
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_photoKey(account.id), base64Encode(photo));
+    await prefs.setString(SharedPrefsKeys.mockBackendPhoto(account.id), base64Encode(photo));
     // A new URL per upload, so cached copies of the old photo aren't reused.
     final url = '$_photoUrlScheme://${account.id}/${_randomId()}';
     account
@@ -203,7 +227,7 @@ class BackendService {
     await Future.delayed(_latency);
     final account = await _accountFor(token);
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_photoKey(account.id));
+    await prefs.remove(SharedPrefsKeys.mockBackendPhoto(account.id));
     account
       ..photoUrl = null
       ..photoContentType = null;
@@ -219,16 +243,13 @@ class BackendService {
     final account = uri?.scheme == _photoUrlScheme ? accounts[uri!.host] : null;
     final prefs = await SharedPreferences.getInstance();
     final encoded = account?.photoUrl == photoUrl
-        ? prefs.getString(_photoKey(account!.id))
+        ? prefs.getString(SharedPrefsKeys.mockBackendPhoto(account!.id))
         : null;
     if (encoded == null) {
       throw const AuthException('Photo not found.');
     }
     return base64Decode(encoded);
   }
-
-  static String _photoKey(String accountId) =>
-      'mock_backend_photo_$accountId';
 
   // ---------------------------------------------------------------------
   // Passkeys: the backend is the WebAuthn relying party
@@ -500,7 +521,7 @@ class BackendService {
     final accounts = <String, _MockAccount>{};
     try {
       final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_dbKey);
+      final raw = prefs.getString(SharedPrefsKeys.mockBackendDb);
       if (raw != null) {
         for (final json in (jsonDecode(raw) as List)) {
           final a = _MockAccount.fromJson(Map<String, dynamic>.from(json));
@@ -527,7 +548,7 @@ class BackendService {
       final accounts = await _db();
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(
-          _dbKey, jsonEncode(accounts.values.map((a) => a.toJson()).toList()));
+          SharedPrefsKeys.mockBackendDb, jsonEncode(accounts.values.map((a) => a.toJson()).toList()));
     } catch (_) {
       // Best-effort: the in-memory copy still serves this run.
     }

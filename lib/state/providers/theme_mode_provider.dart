@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../services/shared_prefs_keys.dart';
 
 /// The user's theme preference. [system] follows the OS setting.
 enum AppThemeMode {
@@ -20,12 +21,10 @@ class ThemeModeNotifier extends StateNotifier<AppThemeMode> {
     _loadFromPrefs();
   }
 
-  static const _key = 'app_theme_mode';
-
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final saved = prefs.getString(_key);
+      final saved = prefs.getString(SharedPrefsKeys.themeMode);
       for (final mode in AppThemeMode.values) {
         if (mode.name == saved) {
           state = mode;
@@ -39,7 +38,7 @@ class ThemeModeNotifier extends StateNotifier<AppThemeMode> {
     state = mode;
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString(_key, mode.name);
+      await prefs.setString(SharedPrefsKeys.themeMode, mode.name);
     } catch (_) {}
   }
 }

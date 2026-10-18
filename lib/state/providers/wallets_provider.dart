@@ -123,14 +123,12 @@ class WalletsNotifier extends AsyncNotifier<WalletsState> {
   }
 }
 
-/// The current wallet's balance in sats, fetched from the wallet; null when
-/// no wallet is connected. `ref.invalidate` it to refresh.
-final currentWalletBalanceProvider =
-    FutureProvider.autoDispose<int?>((ref) async {
-  final walletId = ref.watch(
-      walletsProvider.select((s) => s.valueOrNull?.current?.id));
-  if (walletId == null) return null;
+/// A wallet's balance in sats, fetched from the wallet. `ref.invalidate`
+/// it to refresh (e.g. after paying).
+final walletBalanceProvider =
+    FutureProvider.autoDispose.family<int, String>((ref, walletId) async {
+  await ref.watch(walletsProvider.future);
   final uri = ref.read(walletsProvider.notifier).connectionUri(walletId);
-  if (uri == null) return null;
+  if (uri == null) throw StateError('Unknown wallet.');
   return ref.read(walletServiceProvider).getBalanceSats(uri);
 });

@@ -60,6 +60,30 @@ class CoinGeckoService {
     };
   }
 
+  static final _btcPriceCache = <String, (double, DateTime)>{};
+
+  /// Live BTC price in [currency] (e.g. `NGN`), straight from CoinGecko
+  /// rather than converted through USD. Cached for 30s per currency.
+  static Future<double> getBtcPrice(String currency) async {
+    final code = currency.toLowerCase();
+    final cached = _btcPriceCache[code];
+    if (cached != null &&
+        DateTime.now().difference(cached.$2) < const Duration(seconds: 30)) {
+      return cached.$1;
+    }
+    final uri = Uri.parse('https://api.coingecko.com/api/v3/simple/price'
+        '?ids=bitcoin&vs_currencies=$code');
+    final response = await http.get(uri).timeout(const Duration(seconds: 8));
+    if (response.statusCode != 200) {
+      throw Exception('CoinGecko returned ${response.statusCode}');
+    }
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final price = ((json['bitcoin'] as Map?)?[code] as num?)?.toDouble();
+    if (price == null) throw Exception('No BTC price in $currency');
+    _btcPriceCache[code] = (price, DateTime.now());
+    return price;
+  }
+
   static List<CryptoAsset>? _marketCache;
   static DateTime? _marketCachedAt;
 

@@ -3,12 +3,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/app_icons.dart';
 import '../../core/widgets/app_modal.dart';
-import '../../core/widgets/status_badge.dart';
 import '../../state/models/connected_wallet.dart';
 import '../../state/providers/wallets_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
 import 'connect_wallet_screen.dart';
+import 'wallet_tile.dart';
 
 /// Bottom sheet listing the connected wallets, like a bank app's account
 /// switcher: pick one to make it current, connect another, or remove them.
@@ -46,26 +46,30 @@ class _WalletSwitcher extends ConsumerWidget {
               spacing: 8,
               children: [
               for (final wallet in wallets)
-                _WalletRow(
+                WalletTile(
                   wallet: wallet,
                   selected: wallet.id == currentId,
                   onTap: () async {
                     await notifier.select(wallet.id);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  onRemove: () async {
-                    final confirmed = await _confirm(
-                      context,
-                      title: 'Remove ${wallet.name}?',
-                      message: _revokeHint,
-                      action: 'Remove',
-                    );
-                    if (confirmed) await notifier.remove(wallet.id);
-                    // Nothing left to switch between.
-                    if (confirmed && wallets.length == 1 && context.mounted) {
-                      Navigator.of(context).pop();
-                    }
-                  },
+                  trailing: IconButton(
+                    tooltip: 'Remove',
+                    icon: Icon(AppIcons.trash, size: 17, color: AppColors.muted),
+                    onPressed: () async {
+                      final confirmed = await _confirm(
+                        context,
+                        title: 'Remove ${wallet.name}?',
+                        message: _revokeHint,
+                        action: 'Remove',
+                      );
+                      if (confirmed) await notifier.remove(wallet.id);
+                      // Nothing left to switch between.
+                      if (confirmed && wallets.length == 1 && context.mounted) {
+                        Navigator.of(context).pop();
+                      }
+                    },
+                  ),
                 ),
               ],
             ),
@@ -125,82 +129,6 @@ class _WalletSwitcher extends ConsumerWidget {
       ),
     );
     return result ?? false;
-  }
-}
-
-class _WalletRow extends StatelessWidget {
-  const _WalletRow({
-    required this.wallet,
-    required this.selected,
-    required this.onTap,
-    required this.onRemove,
-  });
-
-  final ConnectedWallet wallet;
-  final bool selected;
-  final VoidCallback onTap;
-  final VoidCallback onRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final ConnectedWallet(:testNetworkLabel, :detailLine) = wallet;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(14),
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(14, 12, 4, 12),
-        decoration: BoxDecoration(
-          color: selected ? AppColors.accentSoft : AppColors.surface3,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(
-              color: selected
-                  ? AppColors.accent.withValues(alpha: 0.5)
-                  : AppColors.border),
-        ),
-        child: Row(
-          spacing: 12,
-          children: [
-            Icon(AppIcons.bolt,
-                size: 18,
-                color: selected ? AppColors.accent : AppColors.textSecondary),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                spacing: 2,
-                children: [
-                  Row(
-                    spacing: 8,
-                    children: [
-                      Flexible(
-                        child: Text(wallet.name,
-                            style: AppText.cardTitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis),
-                      ),
-                      if (testNetworkLabel != null)
-                        StatusBadge(
-                            label: testNetworkLabel, tone: BadgeTone.info),
-                    ],
-                  ),
-                  if (detailLine != null)
-                    Text(detailLine,
-                        style: AppText.caption,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                ],
-              ),
-            ),
-            if (selected)
-              Icon(AppIcons.check, size: 18, color: AppColors.accent),
-            IconButton(
-              tooltip: 'Remove',
-              onPressed: onRemove,
-              icon: Icon(AppIcons.trash, size: 17, color: AppColors.muted),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 

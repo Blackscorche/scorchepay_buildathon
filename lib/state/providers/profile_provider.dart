@@ -4,6 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/kyc.dart';
 import '../services/backend_service.dart';
 import 'app_state_notifier.dart';
+import '../services/shared_prefs_keys.dart';
 
 class UserProfile {
   const UserProfile({
@@ -70,16 +71,12 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
   }
   final Ref _ref;
 
-  static const _keyEmail = 'user_profile_email';
-  static const _keyPhone = 'user_profile_phone';
-  static const _keyBio = 'user_profile_bio';
-
   Future<void> _loadFromPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final email = prefs.getString(_keyEmail);
-      final phone = prefs.getString(_keyPhone);
-      final bio = prefs.getString(_keyBio);
+      final email = prefs.getString(SharedPrefsKeys.profileEmail);
+      final phone = prefs.getString(SharedPrefsKeys.profilePhone);
+      final bio = prefs.getString(SharedPrefsKeys.profileBio);
 
       state = state.copyWith(
         email: email,
@@ -109,9 +106,9 @@ class UserProfileNotifier extends StateNotifier<UserProfile> {
     // Device-only fields: best-effort, independent of the backend call.
     try {
       final prefs = await SharedPreferences.getInstance();
-      if (email != null) await prefs.setString(_keyEmail, email);
-      if (phone != null) await prefs.setString(_keyPhone, phone);
-      if (bio != null) await prefs.setString(_keyBio, bio);
+      if (email != null) await prefs.setString(SharedPrefsKeys.profileEmail, email);
+      if (phone != null) await prefs.setString(SharedPrefsKeys.profilePhone, phone);
+      if (bio != null) await prefs.setString(SharedPrefsKeys.profileBio, bio);
     } catch (_) {}
 
     // Identity is owned by the backend (via app state). While signed out
