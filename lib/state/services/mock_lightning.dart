@@ -13,14 +13,18 @@ class MockLightning {
   static void issue(String invoice, DateTime expiresAt) =>
       _invoices[invoice] = expiresAt;
 
+  /// Retires [invoice] (e.g. replaced by a new quote): paying it fails.
+  static void cancel(String invoice) =>
+      _invoices[invoice] = DateTime.fromMillisecondsSinceEpoch(0);
+
   static void addListener(void Function(String invoice) listener) =>
       _listeners.add(listener);
 
   static void removeListener(void Function(String invoice) listener) =>
       _listeners.remove(listener);
 
-  /// Settles [invoice]. Throws [StateError] if it has expired, like a real
-  /// wallet refusing an expired invoice. Invoices this run didn't issue
+  /// Settles [invoice]. Throws [StateError] if it has expired or was
+  /// cancelled, like a real wallet refusing an expired invoice. Invoices this run didn't issue
   /// (e.g. after a restart) are accepted.
   static void pay(String invoice) {
     final expiresAt = _invoices[invoice];

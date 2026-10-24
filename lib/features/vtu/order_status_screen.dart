@@ -12,31 +12,40 @@ import '../../core/widgets/buttons.dart';
 import '../../core/widgets/status_badge.dart';
 import '../../state/models/vtu.dart';
 import '../../state/providers/vtu_providers.dart';
+import '../../state/providers/wallets_provider.dart';
 import '../../state/services/mock_lightning.dart';
 import '../../state/services/mock_vtu_api.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
+import '../wallet/wallet_tile.dart';
+import 'order_payment_panel.dart';
+import 'pay_from_wallet.dart';
 import 'vtu_ui.dart';
 
-/// Follows an order live (polling) through payment and fulfilment, then
-/// shows its receipt, or the refund form if the bill failed. Also how
-/// past orders open from the dashboard. Open it with `openOrderStatus`.
+/// Opens [OrderStatusScreen] for [orderId].
+void openOrderStatus(BuildContext context, String orderId) {
+  Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => OrderStatusScreen(orderId: orderId)));
+}
+
+/// One screen for an order's whole life, polled live: paying it (quote
+/// and wallet, see [OrderPaymentPanel]), then payment and fulfilment,
+/// then its receipt, or the refund form if the bill failed. Each stage's
+/// main action sits in a bar pinned to the bottom (Pay, Get a new quote,
+/// Request refund, or Back to home when there's nothing to do). The order
+/// form opens it after Continue, and past orders open it from the
+/// dashboard.
 class OrderStatusScreen extends ConsumerStatefulWidget {
-  const OrderStatusScreen(
-      {super.key, required this.orderId, required this.openCheckout});
+  const OrderStatusScreen({super.key, required this.orderId});
 
   final String orderId;
-
-  /// Replaces this screen with checkout for a new quote (passed in so this
-  /// file doesn't import the checkout, which imports it).
-  final void Function(BuildContext context, VtuOrder order) openCheckout;
 
   @override
   ConsumerState<OrderStatusScreen> createState() => _OrderStatusScreenState();
 }
 
 class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
-    with AsyncActionMixin {
+    with AsyncActionMixin, OrderPaymentActions {
   final _refundController = TextEditingController();
 
   @override
@@ -45,17 +54,9 @@ class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
     super.dispose();
   }
 
-  /// Back to the dashboard, skipping the order form and checkout.
+  /// Back to the dashboard, skipping the order form.
   void _close() =>
       Navigator.of(context).popUntil((route) => route.isFirst);
-
-  Future<void> _requote(VtuOrder order) async {
-    final result = await runAction(
-        () => ref.read(vtuApiProvider).createOrder(order.request));
-    if (!mounted || !result.hasValue) return;
-    ref.invalidate(recentOrdersProvider);
-    widget.openCheckout(context, result.requireValue);
-  }
 
   Future<void> _requestRefund(VtuOrder order) async {
     final result = await runAction(() => ref
@@ -87,17 +88,34 @@ class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
       ref.invalidate(vtuLimitsProvider);
     });
     final order = ref.watch(provider);
+    // Unpaid, back returns to the order form to change details (Continue
+    // there requotes this order). Paid, it goes home.
+    final unpaid = switch (order.valueOrNull?.status) {
+      null || OrderStatus.awaitingPayment || OrderStatus.expired => true,
+      _ => false,
+    };
+    void back() => unpaid ? Navigator.of(context).pop() : _close();
 
     return PopScope(
-      canPop: false,
+      canPop: unpaid,
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _close();
       },
       child: Scaffold(
         backgroundColor: AppColors.page,
+        bottomNavigationBar: switch (order.valueOrNull) {
+          final order? => SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(18, 8, 18, 16),
+                child: _actionBar(order),
+              ),
+            ),
+          null => null,
+        },
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 40),
+            padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               spacing: 22,
@@ -105,7 +123,7 @@ class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
                 Row(
                   spacing: 12,
                   children: [
-                    IconCircleButton(icon: AppIcons.chevronLeft, onTap: _close),
+                    IconCircleButton(icon: AppIcons.chevronLeft, onTap: back),
                     Text('Order', style: AppText.detailTitle),
                   ],
                 ),
@@ -143,32 +161,91 @@ class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
     return [
       _StatusHero(order: order),
       if (status == OrderStatus.awaitingPayment ||
-          status == OrderStatus.paid ||
-          status == OrderStatus.fulfilling)
+          status == OrderStatus.expired)
+        OrderPaymentPanel(
+          order: order,
+          wallet: payingWallet(ref, payingWalletId),
+          onWalletChanged: selectPayingWallet,
+        ),
+      if (status == OrderStatus.paid || status == OrderStatus.fulfilling)
         _Progress(status: status),
       if (status == OrderStatus.done && order.receipt != null)
         _ReceiptCard(receipt: order.receipt!),
       if (status == OrderStatus.refundable && !order.refundRequested)
         _refundForm(order),
-      if (status == OrderStatus.expired)
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          spacing: 12,
-          children: [
-            if (actionError != null)
-              Text(actionError!,
-                  style: AppText.caption.copyWith(color: AppColors.loss)),
-            PrimaryButton(
-              label: 'Get a new quote',
-              icon: AppIcons.refresh,
-              loading: actionRunning,
-              onPressed: () => _requote(order),
-            ),
-          ],
-        ),
       _DetailsCard(order: order),
-      SecondaryButton(label: 'Back to home', onPressed: _close),
     ];
+  }
+
+  /// The stage's main action, pinned to the bottom.
+  Widget _actionBar(VtuOrder order) {
+    final api = ref.watch(vtuApiProvider);
+    final status = order.status;
+
+    if (canPayNow(order)) {
+      final wallet = payingWallet(ref, payingWalletId);
+      final balance =
+          wallet == null ? null : ref.watch(walletBalanceProvider(wallet.id));
+      final enough =
+          balance == null ? null : coversAmount(balance, order.sats);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 8,
+        children: [
+          if (actionError != null)
+            Text(actionError!,
+                style: AppText.caption.copyWith(color: AppColors.loss)),
+          PrimaryButton(
+            label: 'Pay',
+            icon: AppIcons.bolt,
+            loading: actionRunning,
+            onPressed: wallet == null || enough == false
+                ? null
+                : () => payOrder(order, wallet),
+          ),
+          if (kDebugMode && api is MockVtuApi)
+            TextButton(
+              onPressed:
+                  actionRunning ? null : () => simulatePayment(order, api),
+              child: const Text('Simulate payment (debug)'),
+            ),
+        ],
+      );
+    }
+
+    if (status == OrderStatus.awaitingPayment ||
+        status == OrderStatus.expired) {
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        spacing: 8,
+        children: [
+          if (actionError != null)
+            Text(actionError!,
+                style: AppText.caption.copyWith(color: AppColors.loss)),
+          PrimaryButton(
+            label: 'Get a new quote',
+            icon: AppIcons.refresh,
+            loading: actionRunning,
+            onPressed: () => requoteOrder(order),
+          ),
+        ],
+      );
+    }
+
+    if (status == OrderStatus.refundable && !order.refundRequested) {
+      // Its errors show on the invoice field.
+      return PrimaryButton(
+        label: 'Request refund',
+        loading: actionRunning,
+        onPressed: _refundController.text.trim().isEmpty
+            ? null
+            : () => _requestRefund(order),
+      );
+    }
+
+    return SecondaryButton(label: 'Back to home', onPressed: _close);
   }
 
   Widget _refundForm(VtuOrder order) {
@@ -223,13 +300,6 @@ class _OrderStatusScreenState extends ConsumerState<OrderStatusScreen>
                 ),
             ],
           ),
-          PrimaryButton(
-            label: 'Request refund',
-            loading: actionRunning,
-            onPressed: _refundController.text.trim().isEmpty
-                ? null
-                : () => _requestRefund(order),
-          ),
         ],
       ),
     );
@@ -252,7 +322,7 @@ class _StatusHero extends StatelessWidget {
           height: 64,
           decoration: BoxDecoration(
               color: color.withValues(alpha: 0.14), shape: BoxShape.circle),
-          child: order.inProgress
+          child: _working(order)
               ? Padding(
                   padding: const EdgeInsets.all(20),
                   child: CircularProgressIndicator(
@@ -266,6 +336,12 @@ class _StatusHero extends StatelessWidget {
     );
   }
 
+  /// Something is happening on our side (no action needed).
+  static bool _working(VtuOrder order) =>
+      order.status == OrderStatus.paid ||
+      order.status == OrderStatus.fulfilling ||
+      order.refundRequested;
+
   static (IconData, Color, String, String) _describe(VtuOrder order) {
     final amount = formatFiat(order.amount, order.currency);
     switch (order.status) {
@@ -273,9 +349,9 @@ class _StatusHero extends StatelessWidget {
         return (
           AppIcons.bolt,
           AppColors.accent,
-          'Waiting for payment',
-          'If your wallet asks you to approve the payment, confirm it '
-              'there. This page updates on its own.'
+          'Ready to pay',
+          "Pay before the quote runs out. Already paid? If your wallet asks "
+              'you to approve it, confirm there.'
         );
       case OrderStatus.paid:
         return (
@@ -461,6 +537,8 @@ class _DetailsCard extends StatelessWidget {
             DetailLine('Customer', order.customerName!),
           DetailLine('Amount',
               '${formatFiat(order.amount, order.currency)} · ${formatSats(order.sats)}'),
+          DetailLine('Rate',
+              '${formatFiat(order.rate.round(), order.currency)} per BTC'),
           DetailLine(
               'Date', DateFormat.yMMMd().add_jm().format(order.createdAt)),
           DetailLine('Order', order.id,

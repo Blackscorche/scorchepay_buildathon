@@ -16,7 +16,7 @@ import '../../state/providers/wallets_provider.dart';
 import '../../state/services/vtu_api.dart';
 import '../../theme/app_colors.dart';
 import '../../theme/app_text_styles.dart';
-import 'checkout_screen.dart';
+import 'order_status_screen.dart';
 import 'pay_from_wallet.dart';
 import 'verify_prompt.dart';
 import 'vtu_ui.dart';
@@ -24,8 +24,8 @@ import 'vtu_ui.dart';
 /// One order form for every bill category, built from the catalog: the
 /// selected [Biller] says which inputs appear (its options, target and
 /// pricing), so nothing here depends on the category. Continue locks a
-/// quote and opens [CheckoutScreen], where the user picks the wallet to
-/// pay from.
+/// quote and opens the order's screen, where the user picks the wallet to
+/// pay from and pays.
 class VtuOrderScreen extends ConsumerStatefulWidget {
   const VtuOrderScreen({super.key, required this.category});
 
@@ -44,6 +44,11 @@ class _VtuOrderScreenState extends ConsumerState<VtuOrderScreen>
   String? _optionId;
   String? _planId;
   String? _targetError;
+
+  /// The unpaid order this form last opened. Continuing
+  /// again (e.g. after going back to change the amount) requotes it with
+  /// the new details instead of creating another order.
+  String? _draftOrderId;
 
   /// The customer check, for [_customerKey]'s inputs.
   AsyncValue<CustomerInfo>? _customer;
@@ -159,7 +164,7 @@ class _VtuOrderScreenState extends ConsumerState<VtuOrderScreen>
       amount: amount,
     );
 
-    var result = await runAction(() => _api.createOrder(request));
+    var result = await runAction(() => _placeOrder(request));
     if (!mounted) return;
     final error = result.error;
     if (error is VtuException && error.code == VtuErrorCode.overLimit) {
@@ -170,16 +175,31 @@ class _VtuOrderScreenState extends ConsumerState<VtuOrderScreen>
       final verified = await showVerifyPrompt(context,
           reason: error.message, limits: limits);
       if (!verified || !mounted) return;
-      result = await runAction(() => _api.createOrder(request));
+      result = await runAction(() => _placeOrder(request));
       if (!mounted) return;
     }
 
     final order = result.valueOrNull;
     if (order == null) return;
+    _draftOrderId = order.id;
     ref.invalidate(recentOrdersProvider);
     ref.invalidate(vtuLimitsProvider);
-    await Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => CheckoutScreen(order: order)));
+    openOrderStatus(context, order.id);
+  }
+
+  /// Requotes this form's unpaid order with [request], or creates one if
+  /// there's none yet (or it was paid in the meantime).
+  Future<VtuOrder> _placeOrder(OrderRequest request) async {
+    final draftId = _draftOrderId;
+    if (draftId != null) {
+      try {
+        return await _api.requote(draftId, request: request);
+      } on VtuException catch (e) {
+        if (e.code != VtuErrorCode.alreadyPaid) rethrow;
+        _draftOrderId = null;
+      }
+    }
+    return _api.createOrder(request);
   }
 
   @override

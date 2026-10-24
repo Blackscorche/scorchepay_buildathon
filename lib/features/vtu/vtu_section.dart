@@ -15,7 +15,7 @@ import '../../state/providers/vtu_providers.dart';
 import '../../state/providers/wallets_provider.dart';
 import '../../state/services/mock_vtu_api.dart';
 import '../../theme/app_text_styles.dart';
-import 'checkout_screen.dart';
+import 'order_status_screen.dart';
 import 'pay_from_wallet.dart';
 import 'vtu_order_screen.dart';
 import 'vtu_ui.dart';

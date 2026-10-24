@@ -21,6 +21,14 @@ abstract class VtuApi {
   /// don't allow it.
   Future<VtuOrder> createOrder(OrderRequest request);
 
+  /// Prices an unpaid order again (awaiting payment or expired): a fresh
+  /// quote and invoice on the same order, whose old invoice can no longer
+  /// be paid. With [request], the order's details change too (e.g. the
+  /// user went back and picked another amount). Throws
+  /// [VtuErrorCode.alreadyPaid] once it's paid, or [VtuErrorCode.overLimit]
+  /// like [createOrder].
+  Future<VtuOrder> requote(String orderId, {OrderRequest? request});
+
   Future<VtuOrder> getOrder(String orderId);
 
   /// The user's orders, newest first.
@@ -37,6 +45,7 @@ enum VtuErrorCode {
   invalidTarget,
   customerNotFound,
   quoteExpired,
+  alreadyPaid,
   billerUnavailable,
   invalidInvoice,
   signedOut,

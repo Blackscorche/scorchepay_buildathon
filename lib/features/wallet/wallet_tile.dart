@@ -20,7 +20,7 @@ bool? coversAmount(AsyncValue<int> balance, int? sats) {
 
 /// One wallet in a list, with a live balance preview so the user can pick
 /// one that has funds: used by the dashboard's wallet switcher and the
-/// checkout's "Wallet to pay from" sheet. With [requiredSats], flags a
+/// order screen's "Wallet to pay from" sheet. With [requiredSats], flags a
 /// balance that doesn't cover it. [trailing] adds actions (e.g. remove).
 class WalletTile extends ConsumerWidget {
   const WalletTile({

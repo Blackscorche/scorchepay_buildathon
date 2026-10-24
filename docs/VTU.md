@@ -16,22 +16,27 @@ catalog, so more countries are a backend change.
      amount or a plan). The screen never checks the category.
    - Meters and smartcards show the holder's name before you can continue.
    - Shows the KYC tier limits, with a way to raise them.
-3. **Checkout** (`CheckoutScreen`):
-   - The quote: naira, sats, rate and a 2-minute countdown.
-   - Pay from: the current wallet and its balance. Tap it to switch; the
-     picker shows every wallet's balance and flags ones that don't have
-     enough.
-   - Pay sends the invoice to that wallet over NWC, waiting until the quote
-     expires.
-   - Once expired, "Get a new quote" re-requests the same order.
-4. **Status** (`OrderStatusScreen`) polls the order every 2 seconds until it
-   finishes:
-   - Done: the receipt (electricity token with copy, or a confirmation, plus
-     the reference).
+3. **Order screen** (`OrderStatusScreen`): one screen for the order's whole
+   life. It polls the order every 2 seconds while anything can change.
+   Each stage's main action is pinned to the bottom: Pay, Get a new quote,
+   Request refund, or Back to home when there's nothing to do.
+   - Unpaid (`OrderPaymentPanel`): the quote (naira, sats and a 2-minute
+     countdown), "Pay from" with the current wallet and its balance (tap to
+     switch; the picker shows every wallet's balance and flags ones that
+     don't have enough), and Pay, which sends the invoice to that wallet
+     over NWC, waiting until the quote expires.
+   - Once the quote expires, "Get a new quote" requotes the same order: a
+     fresh price and invoice under the same order ID.
+   - Back from an unpaid order returns to the form; continuing again
+     requotes that order (with any changed details) instead of creating
+     another one. One purchase is one order.
+   - Paid: progress through processing, then the receipt (whatever items
+     the backend sent, e.g. an electricity token with copy, plus the
+     reference). Back now goes home.
    - Refund available: a field to paste an invoice for exactly the order's
      sats.
-   - Expired: "Get a new quote".
-5. **Recent orders** on the dashboard reopen any order's status screen.
+4. **Recent orders** on the dashboard reopen any order's screen, so an
+   unpaid one can still be paid.
 
 ### Over the limit
 
@@ -53,6 +58,7 @@ are in `lib/state/models/vtu.dart`.
 | `GET /limits` | Currency, tier, limit per order, daily limit, amount used today, and the next tier's limits |
 | `POST /customers/validate` `{billerId, target, optionId}` | Name (and address) on a meter or smartcard |
 | `POST /orders` `{billerId, target, optionId?, planId?, amount?}` | Locks a quote; returns the order with `sats`, `rate`, `expiresAt` and a BOLT11 `invoice` |
+| `POST /orders/:id/quote` `{billerId?, target?, optionId?, planId?, amount?}` | Requotes an unpaid order (awaiting payment or expired): new price, `expiresAt` and invoice, same ID. The old invoice is cancelled. An optional body replaces the order's details. `alreadyPaid` once it's paid |
 | `GET /orders/:id` | One shape for every state (below), with a display `title` written by the backend |
 | `GET /orders?limit=` | The user's orders, newest first |
 | `POST /orders/:id/refund` `{invoice}` | Pays a refundable order's sats to the user's invoice |
@@ -61,6 +67,9 @@ Order states:
 
 - `awaitingPayment` changes to `paid` when the invoice is paid, or to
   `expired` when it isn't.
+- A requote moves `awaitingPayment` or `expired` back to `awaitingPayment`
+  with a new invoice. (The system design doc treats `expired` as final; this
+  is the one change to it, so retries don't create duplicate orders.)
 - `paid` → `fulfilling` → `done`, with a `receipt`: a reference, an optional
   message, and labelled `items` the backend chooses per biller (e.g. an
   electricity `Token`, marked `primary` and `copyable`, and `Units`). The
@@ -71,7 +80,7 @@ Order states:
   becomes `refunded` when the refund is paid.
 
 Error codes: `overLimit`, `invalidTarget`, `customerNotFound`,
-`quoteExpired`, `billerUnavailable`, `invalidInvoice`, `notFound`, `network`.
+`quoteExpired`, `alreadyPaid`, `billerUnavailable`, `invalidInvoice`, `notFound`, `network`.
 
 Amounts: fiat amounts are whole naira, and Bitcoin amounts are sats.
 
@@ -101,7 +110,7 @@ Things to try:
     a valid refund invoice.
   - Quote expires fast: quotes last 20 seconds.
   - Server down
-- **Simulate payment (debug):** on checkout, this settles the invoice
+- **Simulate payment (debug):** on an unpaid order, this settles the invoice
   without a wallet. Use it when testing with a real NWC wallet, which can't
   pay a mock invoice.
 

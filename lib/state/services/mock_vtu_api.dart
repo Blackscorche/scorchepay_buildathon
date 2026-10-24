@@ -117,6 +117,50 @@ class MockVtuApi implements VtuApi {
   Future<VtuOrder> createOrder(OrderRequest request) async {
     await _request();
     final account = await _account();
+    final order = _MockOrder(
+      accountId: account.accountId,
+      willFail: scenario == MockScenario.billFails,
+      base: await _quote(account, request, orderId: _newId()),
+    );
+    (await _db())[order.base.id] = order;
+    await _save();
+    return order.resolve(DateTime.now());
+  }
+
+  @override
+  Future<VtuOrder> requote(String orderId, {OrderRequest? request}) async {
+    await _request();
+    final account = await _account();
+    final order = await _ownOrder(orderId);
+    final status = order.resolve(DateTime.now()).status;
+    if (status != OrderStatus.awaitingPayment &&
+        status != OrderStatus.expired) {
+      throw const VtuException(
+          VtuErrorCode.alreadyPaid, 'This order has already been paid.');
+    }
+    final quote = await _quote(account, request ?? order.base.request,
+        orderId: order.base.id);
+    // The old invoice may have been paid while this was pricing.
+    if (order.paidAt != null) {
+      MockLightning.cancel(quote.invoice);
+      throw const VtuException(
+          VtuErrorCode.alreadyPaid, 'This order has already been paid.');
+    }
+    // Retire the old invoice, so the order can't be paid twice.
+    MockLightning.cancel(order.base.invoice);
+    order
+      ..base = quote
+      ..willFail = scenario == MockScenario.billFails;
+    await _save();
+    return order.resolve(DateTime.now());
+  }
+
+  /// Validates [request], checks it against the user's limits (leaving
+  /// out [orderId]'s own current quote, when requoting) and prices it
+  /// with a fresh invoice, as order [orderId] awaiting payment.
+  Future<VtuOrder> _quote(
+      ({String accountId, KycInfo kyc}) account, OrderRequest request,
+      {required String orderId}) async {
     final biller = _biller(request.billerId);
     if (!biller.available) {
       throw VtuException(VtuErrorCode.billerUnavailable,
@@ -138,8 +182,8 @@ class MockVtuApi implements VtuApi {
           'Choose a ${options.label.toLowerCase()} to continue.');
     }
 
-    final limits =
-        _limits(account.kyc.tier, await _usedToday(account.accountId));
+    final limits = _limits(account.kyc.tier,
+        await _usedToday(account.accountId, excluding: orderId));
     if (amount > limits.maxOrder) {
       final daily = amount > limits.remainingToday && amount <= limits.perOrder;
       throw VtuException(
@@ -156,46 +200,38 @@ class MockVtuApi implements VtuApi {
 
     final now = DateTime.now();
     final sats = (amount / _ngnPerBtc * 1e8 * (1 + _spread)).ceil();
-    final id = _newId();
     final expiresAt = now.add(scenario == MockScenario.quoteExpires
         ? const Duration(seconds: 20)
         : const Duration(minutes: 2));
-    final invoice = MockLightning.fakeInvoice(sats, id.hashCode);
+    final invoice = MockLightning.fakeInvoice(sats, _random.nextInt(1 << 30));
     MockLightning.issue(invoice, expiresAt);
 
-    final order = _MockOrder(
-      accountId: account.accountId,
-      willFail: scenario == MockScenario.billFails,
-      base: VtuOrder(
-        id: id,
-        title: _orderTitle(biller, plan: plan, option: option),
-        status: OrderStatus.awaitingPayment,
-        category: biller.category,
+    return VtuOrder(
+      id: orderId,
+      title: _orderTitle(biller, plan: plan, option: option),
+      status: OrderStatus.awaitingPayment,
+      category: biller.category,
+      billerId: biller.id,
+      billerName: biller.name,
+      target: target,
+      amount: amount,
+      currency: _currency,
+      sats: sats,
+      rate: amount / sats * 1e8,
+      invoice: invoice,
+      createdAt: now,
+      expiresAt: expiresAt,
+      request: OrderRequest(
         billerId: biller.id,
-        billerName: biller.name,
         target: target,
-        amount: amount,
-        currency: _currency,
-        sats: sats,
-        rate: amount / sats * 1e8,
-        invoice: invoice,
-        createdAt: now,
-        expiresAt: expiresAt,
-        request: OrderRequest(
-          billerId: biller.id,
-          target: target,
-          optionId: option?.id,
-          planId: plan?.id,
-          amount: plan == null ? amount : null,
-        ),
-        planName: plan?.name,
-        optionName: option?.name,
-        customerName: customer?.name,
+        optionId: option?.id,
+        planId: plan?.id,
+        amount: plan == null ? amount : null,
       ),
+      planName: plan?.name,
+      optionName: option?.name,
+      customerName: customer?.name,
     );
-    (await _db())[id] = order;
-    await _save();
-    return order.resolve(now);
   }
 
   @override
@@ -362,12 +398,13 @@ class MockVtuApi implements VtuApi {
 
   /// Today's spend: paid orders, plus unexpired quotes (they hold the
   /// limit until they expire). Failed and refunded ones don't count.
-  Future<int> _usedToday(String accountId) async {
+  Future<int> _usedToday(String accountId, {String? excluding}) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     var total = 0;
     for (final order in (await _db()).values) {
       if (order.accountId != accountId ||
+          order.base.id == excluding ||
           order.base.createdAt.isBefore(today)) {
         continue;
       }
@@ -431,11 +468,11 @@ class _MockOrder {
 
   final String accountId;
 
-  /// The order as created (awaiting payment).
-  final VtuOrder base;
+  /// The order as last quoted (awaiting payment). Replaced on a requote.
+  VtuOrder base;
 
   /// The provider fails this bill ([MockScenario.billFails]).
-  final bool willFail;
+  bool willFail;
   DateTime? paidAt;
   DateTime? refundRequestedAt;
 

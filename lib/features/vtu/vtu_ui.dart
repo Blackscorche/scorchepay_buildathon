@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/app_icons.dart';
@@ -221,6 +223,61 @@ class DetailLine extends StatelessWidget {
         ),
         if (trailing != null) trailing!,
       ],
+    );
+  }
+}
+
+/// "Quote expires in 1:42", ticking every second: warns in the last 30
+/// seconds and reads "Quote expired" after [expiresAt].
+class QuoteCountdown extends StatefulWidget {
+  const QuoteCountdown({super.key, required this.expiresAt});
+
+  final DateTime expiresAt;
+
+  @override
+  State<QuoteCountdown> createState() => _QuoteCountdownState();
+}
+
+class _QuoteCountdownState extends State<QuoteCountdown> {
+  late final Timer _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final left = widget.expiresAt.difference(DateTime.now());
+    final expired = left <= Duration.zero;
+    final color = expired
+        ? AppColors.loss
+        : left.inSeconds < 30
+            ? AppColors.warn
+            : AppColors.textSecondary;
+    final seconds = (left.inSeconds % 60).toString().padLeft(2, '0');
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        expired
+            ? 'Quote expired'
+            : 'Quote expires in ${left.inMinutes}:$seconds',
+        style:
+            AppText.caption.copyWith(color: color, fontWeight: FontWeight.w700),
+      ),
     );
   }
 }
