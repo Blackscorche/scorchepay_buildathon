@@ -1,0 +1,1103 @@
+openapi: 3.0.3
+info:
+  title: ScorchePay API
+  version: "0.1.0"
+  description: |
+    Pay Nigerian bills (airtime, data, electricity, TV) with Bitcoin over
+    Lightning. Payments are **held until the bill is delivered**: if the
+    bill fails, the payment is cancelled and the sats go back to the
+    payer's wallet.
+
+    **Try it here**
+
+    1. **Sign up**: `POST /v1/auth/signup/code`, then `…/verify` with
+       code `123456` (development), then `POST /v1/auth/signup`.
+       Or log in with `POST /v1/auth/login`.
+    2. Copy the `token`, click **Authorize** (top right) and paste it
+       into **userToken**.
+    3. Buy a bill: `POST /v1/vtu/orders`, then
+       `POST /v1/dev/orders/{id}/simulate-payment` (Swagger can't pay a
+       Lightning invoice), then `GET /v1/vtu/orders/{id}` a couple of
+       times to watch it go `paid` → `fulfilling` → `done`.
+
+    **Test inputs** (fake providers):
+    - A meter or smartcard number ending `0000` → `customerNotFound`.
+    - A target ending `9999` → the bill fails, so the payment goes back
+      (`refunded`).
+
+    Amounts: naira are whole naira, Bitcoin is sats. Times are ISO 8601
+    UTC. Full guide: `docs/API_GUIDE.md`.
+
+    **Requests:** JSON bodies are read whatever the `Content-Type` is, and
+    an empty body counts as "no body" where the body is optional.
+    **Errors** are always `{"error": {"code", "message"}}`, including for
+    unknown routes, wrong methods and malformed bodies (`invalid`).
+servers:
+  - url: /
+tags:
+  - name: Auth
+    description: Sign-up, login and the current user
+  - name: KYC
+    description: Identity verification (raises limits)
+  - name: VTU
+    description: Catalog, limits and orders
+  - name: Bill links
+    description: '"Pay my bill" links: the requester (signed in)'
+  - name: Bill links (public)
+    description: What the person paying a link uses. No auth
+  - name: Development
+    description: Only when DEV_SIMULATE_PAYMENTS=true
+  - name: Admin
+    description: Operator endpoints. Use the adminToken
+  - name: Health
+
+security:
+  - userToken: []
+
+paths:
+  /health:
+    get:
+      operationId: health
+      tags: [Health]
+      summary: Is the server up
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema: { type: string, example: ok }
+
+  # ------------------------------------------------------------------ Auth
+  /v1/auth/signup/code:
+    post:
+      operationId: requestSignUpCode
+      tags: [Auth]
+      summary: "Sign-up step 1: send an OTP to a phone or email"
+      description: Calling it again for the same contact replaces the code (resend). Codes last 10 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact]
+              properties:
+                contact: { type: string, description: Phone number or email, example: ada@example.com }
+      responses:
+        "200":
+          description: Code sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationId: { type: string, format: uuid }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/signup/verify:
+    post:
+      operationId: verifySignUpCode
+      tags: [Auth]
+      summary: "Sign-up step 2: check the OTP"
+      description: 5 tries per code. In development `123456` always works.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationId, code]
+              properties:
+                verificationId: { type: string, format: uuid }
+                code: { type: string, example: "123456" }
+      responses:
+        "200":
+          description: Verified
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signUpToken: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/usernames/{username}:
+    get:
+      operationId: checkUsername
+      tags: [Auth]
+      summary: Check a username is valid and free
+      security: []
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string, example: ada_lovelace } }
+      responses:
+        "200":
+          description: Available
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: boolean, example: true }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/signup:
+    post:
+      operationId: signUp
+      tags: [Auth]
+      summary: "Sign-up step 3: create the account"
+      description: New accounts start at KYC tier 0. Returns a session token.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [signUpToken, displayName, username, pin]
+              properties:
+                signUpToken: { type: string }
+                displayName: { type: string, example: Ada }
+                username: { type: string, description: "3–20 of a-z 0-9 _ . (a leading @ is fine)", example: ada_lovelace }
+                pin: { type: string, description: 4 digits, example: "1234" }
+      responses:
+        "200": { $ref: "#/components/responses/Token" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/login:
+    post:
+      operationId: login
+      tags: [Auth]
+      summary: Log in with username and PIN
+      description: 5 wrong PINs lock login for 15 minutes.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, pin]
+              properties:
+                username: { type: string, example: "@ada_lovelace" }
+                pin: { type: string, example: "1234" }
+      responses:
+        "200": { $ref: "#/components/responses/Token" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/me:
+    get:
+      operationId: getMe
+      tags: [Auth]
+      summary: The signed-in user
+      responses:
+        "200":
+          description: User
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: updateMe
+      tags: [Auth]
+      summary: Change username or display name
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                username: { type: string }
+                displayName: { type: string }
+      responses:
+        "200":
+          description: Updated user
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/me/photo:
+    put:
+      operationId: uploadPhoto
+      tags: [Auth]
+      summary: Set the profile photo
+      description: |
+        The body is the image file's bytes. The `Content-Type` is ignored:
+        the type is read from the bytes. JPEG, PNG, WebP, HEIC or GIF, up
+        to 5 MB. `POST` works too. Returns the new `photoUrl`, which
+        changes on every upload.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+          image/*:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: Uploaded
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  photoUrl: { type: string, example: "http://localhost:8080/v1/photos/4cfb151d-d737-49e9-83a7-267d17efab05/1a2b3c4d5e6f7a8b" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: deletePhoto
+      tags: [Auth]
+      summary: Remove the profile photo
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  photoUrl: { type: string, nullable: true, example: null }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /v1/photos/{userId}/{version}:
+    get:
+      operationId: getPhoto
+      tags: [Auth]
+      summary: A profile photo (the `photoUrl` from /v1/me)
+      description: Public, since the URL carries an unguessable version. Cacheable for good.
+      security: []
+      parameters:
+        - { name: userId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: version, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: The image
+          content:
+            image/*:
+              schema: { type: string, format: binary }
+        "404": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ KYC
+  /v1/kyc/verify:
+    post:
+      operationId: startKyc
+      tags: [KYC]
+      summary: Start identity verification
+      description: |
+        Open `url` (Mono's hosted page), then poll `GET /v1/me` until
+        `kyc.status` changes. In development `url` is null and tier 1 is
+        granted after about 2 seconds.
+      responses:
+        "200":
+          description: Started (or already verified)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [pending, verified] }
+                  url: { type: string, nullable: true }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /v1/webhooks/mono:
+    post:
+      operationId: monoWebhook
+      tags: [KYC]
+      summary: Mono Prove webhook (called by Mono, not the app)
+      security: []
+      parameters:
+        - { name: mono-webhook-secret, in: header, required: true, schema: { type: string } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                event: { type: string, example: mono.prove.data_verification_successful }
+                data:
+                  type: object
+                  properties:
+                    reference: { type: string }
+      responses:
+        "200": { description: Acknowledged }
+        "401": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ VTU
+  /v1/vtu/catalog:
+    get:
+      operationId: getCatalog
+      tags: [VTU]
+      summary: Billers, each describing its own order form
+      security: []
+      parameters:
+        - { name: country, in: query, schema: { type: string, default: NG } }
+      responses:
+        "200":
+          description: Catalog
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Catalog" }
+
+  /v1/vtu/limits:
+    get:
+      operationId: getLimits
+      tags: [VTU]
+      summary: The user's limits at their KYC tier, and today's spend
+      responses:
+        "200":
+          description: Limits
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Limits" }
+
+  /v1/vtu/customers/validate:
+    post:
+      operationId: validateCustomer
+      tags: [VTU]
+      summary: Who owns a meter or smartcard (billers with customerCheck)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [billerId, target]
+              properties:
+                billerId: { type: string, example: ikedc }
+                target: { type: string, example: "12345678901" }
+                optionId: { type: string, nullable: true, example: prepaid }
+      responses:
+        "200":
+          description: Customer
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name: { type: string, example: EMEKA OKAFOR }
+                  address: { type: string, nullable: true, example: "22 Allen Avenue, Ikeja, Lagos" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/vtu/orders:
+    post:
+      operationId: createOrder
+      tags: [VTU]
+      summary: Create an order (locks a 2-minute quote with a Lightning invoice)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderRequest" }
+            examples:
+              airtime: { value: { billerId: mtn-airtime, target: "08031234567", amount: 500 } }
+              data: { value: { billerId: mtn-data, target: "08031234567", planId: mtn-2gb-30d } }
+              electricity: { value: { billerId: ikedc, target: "12345678901", optionId: prepaid, amount: 5000 } }
+              tv: { value: { billerId: gotv, target: "1234567890", planId: gotv-jolli } }
+              failsOnPurpose: { value: { billerId: mtn-airtime, target: "08031239999", amount: 500 } }
+      responses:
+        "200":
+          description: Order awaiting payment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listOrders
+      tags: [VTU]
+      summary: The user's orders, newest first
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Order" }
+
+  /v1/vtu/orders/{id}:
+    get:
+      operationId: getOrder
+      tags: [VTU]
+      summary: One order. Poll every 2 s while it isn't final
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/vtu/orders/{id}/quote:
+    post:
+      operationId: requoteOrder
+      tags: [VTU]
+      summary: Requote an unpaid order (same ID, new price and invoice)
+      description: |
+        For `awaitingPayment` or `expired` orders. The old invoice can't
+        be paid any more. Send an OrderRequest to change details, or no
+        body to reprice as is. `alreadyPaid` once it's paid.
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrderRequest" }
+      responses:
+        "200":
+          description: Requoted order
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/vtu/orders/{id}/refund:
+    post:
+      operationId: requestRefund
+      tags: [VTU]
+      summary: Claim a refund for a refundable order (rare)
+      description: The invoice must be for exactly the order's sats, on the backend's network.
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [invoice]
+              properties:
+                invoice: { type: string, description: BOLT11 invoice }
+      responses:
+        "200":
+          description: Refund started (refundRequested true)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Bill links
+  /v1/bill-links:
+    post:
+      operationId: createBillLink
+      tags: [Bill links]
+      summary: Create a "pay my bill" link to share
+      description: |
+        Two ways, never both:
+
+        - **An order you already created:** send `orderId`. It must be
+          yours and still unpaid (an expired quote is fine: it's requoted
+          when someone opens the link). The link follows that order, so if
+          you requote it the link shows the new price and invoice. Sharing
+          an order that already has a live link returns that link.
+        - **A new bill:** send `billerId` and `target` (plus `optionId`,
+          `planId` or `amount`, as for an order). It's checked now and
+          priced when someone opens an invoice.
+
+        Links last 7 days.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateBillLink" }
+            examples:
+              existingOrder: { summary: Share an order you already created, value: { orderId: zg6zhqmhu7yh, note: "Please help with this one 🙏" } }
+              newBill: { summary: A new bill, value: { billerId: ikedc, target: "12345678901", optionId: prepaid, amount: 5000, note: "Light for the house this week, thank you aunty" } }
+      responses:
+        "200":
+          description: Link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillLink" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    get:
+      operationId: listBillLinks
+      tags: [Bill links]
+      summary: The user's links, newest first
+      responses:
+        "200":
+          description: Links
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BillLink" }
+
+  /v1/bill-links/{code}:
+    get:
+      operationId: getBillLink
+      tags: [Bill links]
+      summary: One link, with its current order in full (receipt and token included)
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: Link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillLink" }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: cancelBillLink
+      tags: [Bill links]
+      summary: Cancel a link (not once paid or while a payment is held)
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: Cancelled link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BillLink" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/public/bill-links/{code}:
+    get:
+      operationId: getPublicBillLink
+      tags: [Bill links (public)]
+      summary: What the payer sees (masked target, no receipt items)
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: Public link
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicBillLink" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/public/bill-links/{code}/invoice:
+    post:
+      operationId: getBillLinkInvoice
+      tags: [Bill links (public)]
+      summary: Get a payable invoice for the link
+      description: |
+        Returns the current invoice if it's still valid, requotes it if it
+        expired, or starts a new attempt if the last one failed back.
+        Errors: `alreadyPaid`, `inProgress`, `cancelled`, `expired`,
+        `overLimit` (the requester's limit).
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: Public link with `payment`
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/PublicBillLink" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /v1/public/bill-links/{code}/qr.svg:
+    get:
+      operationId: getBillLinkQr
+      tags: [Bill links (public)]
+      summary: The current invoice as a QR code
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: SVG image (`lightning:` URI)
+          content:
+            image/svg+xml:
+              schema: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /pay/{code}:
+    get:
+      operationId: payPage
+      tags: [Bill links (public)]
+      summary: The ready-made payer web page
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/LinkCode"
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema: { type: string }
+
+  # ------------------------------------------------------------------ Development
+  /v1/dev/orders/{id}/simulate-payment:
+    post:
+      operationId: simulatePayment
+      tags: [Development]
+      summary: Mark an unpaid order paid without Lightning (testing only)
+      description: |
+        Moves an `awaitingPayment` order (unexpired quote) to `paid`, so you
+        can watch `fulfilling` → `done`, or `refunded` for a target ending
+        `9999`. Works for bill link orders too (the order ID is in
+        `GET /v1/bill-links/{code}` → `order.id`). Only when the server
+        runs with DEV_SIMULATE_PAYMENTS=true.
+      security: []
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      responses:
+        "200":
+          description: Order, now paid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Order" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Admin
+  /admin/node:
+    get:
+      operationId: adminNode
+      tags: [Admin]
+      summary: Lightning node ID, balances and channels
+      security: [{ adminToken: [] }]
+      responses:
+        "200":
+          description: Node
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeInfo" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /admin/node/address:
+    post:
+      operationId: adminNewAddress
+      tags: [Admin]
+      summary: An on-chain address for funding the node
+      security: [{ adminToken: [] }]
+      responses:
+        "200":
+          description: Address
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  address: { type: string, example: tb1qzfu0da32kn4khgemvj3ynapxrg8sssm544dvm5 }
+
+  /admin/node/channels:
+    post:
+      operationId: adminOpenChannel
+      tags: [Admin]
+      summary: Open a channel (push sats to get inbound liquidity)
+      security: [{ adminToken: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [peer, amountSats]
+              properties:
+                peer: { type: string, description: "pubkey@host:port" }
+                amountSats: { type: integer, example: 400000 }
+                pushSats: { type: integer, example: 200000 }
+      responses:
+        "200":
+          description: Opening
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  userChannelId: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /admin/users/{username}/kyc:
+    post:
+      operationId: adminSetTier
+      tags: [Admin]
+      summary: Set a user's KYC tier by hand
+      security: [{ adminToken: [] }]
+      parameters:
+        - { name: username, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [tier]
+              properties:
+                tier: { type: integer, example: 1 }
+      responses:
+        "200":
+          description: New tier
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Kyc" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /admin/orders/review:
+    get:
+      operationId: adminOrdersToReview
+      tags: [Admin]
+      summary: Orders whose provider outcome is unknown
+      security: [{ adminToken: [] }]
+      responses:
+        "200":
+          description: Orders (with provider)
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Order" }
+
+  /admin/orders/{id}/resolve:
+    post:
+      operationId: adminResolveOrder
+      tags: [Admin]
+      summary: Settle a reviewed order as done or refundable
+      security: [{ adminToken: [] }]
+      parameters:
+        - $ref: "#/components/parameters/OrderId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [outcome]
+              properties:
+                outcome: { type: string, enum: [done, refundable] }
+                reference: { type: string }
+                message: { type: string }
+      responses:
+        "200": { description: Resolved }
+        "404": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    userToken:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The `token` from sign-up or login
+    adminToken:
+      type: http
+      scheme: bearer
+      description: The server's ADMIN_TOKEN
+
+  parameters:
+    OrderId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, example: zg6zhqmhu7yh }
+    LinkCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string, example: n5CLSF7kBf }
+
+  responses:
+    Token:
+      description: Session token (JWT, 30 days)
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              token: { type: string }
+    Error:
+      description: Error. `message` is user-facing; branch on `code`
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [signedOut, auth, usernameTaken, invalid, invalidTarget, customerNotFound, overLimit, alreadyPaid,
+                     billerUnavailable, invalidInvoice, notFound, network, unknown, cancelled, expired, inProgress]
+            message: { type: string }
+      example: { error: { code: overLimit, message: "This is over your ₦10,000 limit per order." } }
+
+    Kyc:
+      type: object
+      properties:
+        tier: { type: integer, example: 0 }
+        status: { type: string, enum: [unverified, pending, verified, rejected] }
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        username: { type: string, example: ada_lovelace }
+        displayName: { type: string, example: Ada }
+        kyc: { $ref: "#/components/schemas/Kyc" }
+        photoUrl: { type: string, nullable: true, description: "The profile photo, or null" }
+
+    Limits:
+      type: object
+      properties:
+        currency: { type: string, example: NGN }
+        tier: { type: integer, example: 0 }
+        perOrder: { type: integer, example: 10000 }
+        daily: { type: integer, example: 30000 }
+        usedToday: { type: integer, example: 1000 }
+        nextTier:
+          type: object
+          allOf: [{ $ref: "#/components/schemas/Limits" }]
+          nullable: true
+          description: Limits after verifying; null at the top tier
+
+    Catalog:
+      type: object
+      properties:
+        country: { type: string, example: NG }
+        currency: { type: string, example: NGN }
+        billers:
+          type: array
+          items: { $ref: "#/components/schemas/Biller" }
+
+    Biller:
+      type: object
+      description: One network, disco or TV provider. Build the order form from it
+      properties:
+        id: { type: string, example: gotv }
+        category: { $ref: "#/components/schemas/Category" }
+        name: { type: string, example: GOtv }
+        shortName: { type: string, nullable: true }
+        brandColor: { type: string, nullable: true, example: "#5BB947" }
+        available: { type: boolean, description: false = show greyed out }
+        customerCheck: { type: boolean, description: Validate the customer before continuing }
+        target: { $ref: "#/components/schemas/Target" }
+        options:
+          nullable: true
+          type: object
+          description: A choice before anything else (e.g. meter type); send its id as optionId
+          properties:
+            label: { type: string, example: Meter type }
+            choices:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: string, example: prepaid }
+                  name: { type: string, example: Prepaid }
+        pricing:
+          oneOf:
+            - $ref: "#/components/schemas/AmountPricing"
+            - $ref: "#/components/schemas/PlanPricing"
+          discriminator:
+            propertyName: type
+            mapping:
+              amount: "#/components/schemas/AmountPricing"
+              plans: "#/components/schemas/PlanPricing"
+
+    Category:
+      type: string
+      enum: [airtime, data, electricity, tv]
+
+    Target:
+      type: object
+      properties:
+        kind: { type: string, enum: [phone, number, text] }
+        label: { type: string, example: "Smartcard (IUC) number" }
+        hint: { type: string, example: "10 or 11 digits" }
+        pattern: { type: string, example: "^\\d{10,11}$" }
+        errorText: { type: string, example: "Smartcard numbers are 10 or 11 digits." }
+
+    AmountPricing:
+      type: object
+      properties:
+        type: { type: string, enum: [amount] }
+        label: { type: string, example: Amount }
+        min: { type: integer, nullable: true, example: 1000 }
+        max: { type: integer, nullable: true, example: 500000 }
+        presets: { type: array, items: { type: integer }, example: [2000, 5000, 10000] }
+
+    PlanPricing:
+      type: object
+      properties:
+        type: { type: string, enum: [plans] }
+        label: { type: string, example: Choose a package }
+        plans:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, example: gotv-jolli }
+              name: { type: string, example: Jolli }
+              amount: { type: integer, example: 5800 }
+              validity: { type: string, nullable: true, example: 1 month }
+
+    OrderRequest:
+      type: object
+      required: [billerId, target]
+      description: billerId and target always; then optionId (billers with options), planId (plan billers) or amount (amount billers)
+      properties:
+        billerId: { type: string, example: mtn-airtime }
+        target: { type: string, example: "08031234567" }
+        optionId: { type: string, nullable: true }
+        planId: { type: string, nullable: true }
+        amount: { type: integer, nullable: true, example: 500 }
+
+    OrderStatus:
+      type: string
+      description: |
+        - awaitingPayment: quote out, pay the invoice
+        - expired: quote ran out; requote it
+        - paid: payment held, buying the bill
+        - fulfilling: delivering
+        - done: delivered, see receipt
+        - refunded: bill failed, payment went back to the wallet
+        - refundable: rare, after a staff review; paste a refund invoice
+      enum: [awaitingPayment, expired, paid, fulfilling, done, refunded, refundable]
+
+    Order:
+      type: object
+      properties:
+        id: { type: string, example: zg6zhqmhu7yh }
+        title: { type: string, example: MTN 2GB }
+        status: { $ref: "#/components/schemas/OrderStatus" }
+        category: { $ref: "#/components/schemas/Category" }
+        billerId: { type: string, example: mtn-data }
+        billerName: { type: string, example: MTN }
+        target: { type: string, example: "08031234567" }
+        amount: { type: integer, description: Naira, example: 1500 }
+        currency: { type: string, example: NGN }
+        sats: { type: integer, example: 923 }
+        rate: { type: number, description: "Naira per BTC paid, spread included", example: 162513542.79 }
+        invoice: { type: string, description: BOLT11 invoice to pay, example: lntbs9230n1p4d7e8g… }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time, description: Quote expiry (2 minutes) }
+        request: { $ref: "#/components/schemas/OrderRequest" }
+        planName: { type: string, nullable: true, example: 2GB }
+        optionName: { type: string, nullable: true }
+        customerName: { type: string, nullable: true }
+        paidAt: { type: string, format: date-time, nullable: true }
+        receipt:
+          type: object
+          allOf: [{ $ref: "#/components/schemas/Receipt" }]
+          nullable: true
+        failureReason: { type: string, nullable: true, example: "MTN couldn't complete this bill. Your sats went straight back to your wallet." }
+        refundRequested: { type: boolean }
+
+    Receipt:
+      type: object
+      properties:
+        reference: { type: string, example: FAKE-F72GEHSS62UQ }
+        message: { type: string, nullable: true, example: Enter the token on your meter to load the units. }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              label: { type: string, example: Token }
+              value: { type: string, example: 1234-5678-9012-3456-7890 }
+              primary: { type: boolean, description: Show large }
+              copyable: { type: boolean, description: Offer a copy button }
+
+    LinkStatus:
+      type: string
+      description: |
+        - open: nothing paid yet (or the last attempt failed back)
+        - paying: an invoice is out or a payment is being delivered
+        - paid: delivered
+        - cancelled / expired: can't be paid
+      enum: [open, paying, paid, cancelled, expired]
+
+    CreateBillLink:
+      type: object
+      description: Either `orderId`, or `billerId` and `target` for a new bill
+      properties:
+        orderId: { type: string, example: zg6zhqmhu7yh, description: An unpaid order of yours to share }
+        billerId: { type: string, example: ikedc }
+        target: { type: string, example: "12345678901" }
+        optionId: { type: string, nullable: true }
+        planId: { type: string, nullable: true }
+        amount: { type: integer, nullable: true, example: 5000 }
+        note: { type: string, maxLength: 140, example: "Light for the house this week, thank you aunty" }
+
+    BillLink:
+      type: object
+      properties:
+        code: { type: string, example: n5CLSF7kBf }
+        url: { type: string, example: "http://localhost:8080/pay/n5CLSF7kBf" }
+        status: { $ref: "#/components/schemas/LinkStatus" }
+        title: { type: string, example: Ikeja Electric (Prepaid) }
+        category: { $ref: "#/components/schemas/Category" }
+        billerName: { type: string, example: Ikeja Electric }
+        target: { type: string, example: "12345678901" }
+        amount: { type: integer, example: 5000 }
+        currency: { type: string, example: NGN }
+        note: { type: string, nullable: true }
+        request: { $ref: "#/components/schemas/OrderRequest" }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        order:
+          type: object
+          allOf: [{ $ref: "#/components/schemas/Order" }]
+          nullable: true
+          description: The current payment attempt, in full
+
+    PublicBillLink:
+      type: object
+      properties:
+        code: { type: string, example: n5CLSF7kBf }
+        status: { $ref: "#/components/schemas/LinkStatus" }
+        requester: { type: string, description: Display name, example: Ada }
+        title: { type: string, example: Ikeja Electric (Prepaid) }
+        category: { $ref: "#/components/schemas/Category" }
+        billerName: { type: string, example: Ikeja Electric }
+        target: { type: string, description: Masked, example: "1234••••901" }
+        amount: { type: integer, example: 5000 }
+        currency: { type: string, example: NGN }
+        note: { type: string, nullable: true }
+        expiresAt: { type: string, format: date-time }
+        payment:
+          nullable: true
+          type: object
+          properties:
+            status: { $ref: "#/components/schemas/OrderStatus" }
+            sats: { type: integer, example: 3076 }
+            invoice: { type: string }
+            expiresAt: { type: string, format: date-time }
+            paidAt: { type: string, format: date-time, nullable: true }
+            message: { type: string, nullable: true, description: "Receipt message, target masked" }
+            failureReason: { type: string, nullable: true }
+
+    NodeInfo:
+      type: object
+      properties:
+        nodeId: { type: string }
+        listeningPort: { type: integer }
+        onchainSats: { type: integer }
+        spendableOnchainSats: { type: integer }
+        lightningSats: { type: integer }
+        channels:
+          type: array
+          items:
+            type: object
+            properties:
+              channelId: { type: string }
+              counterparty: { type: string }
+              capacitySats: { type: integer }
+              outboundSats: { type: integer }
+              inboundSats: { type: integer }
+              ready: { type: boolean }
+              usable: { type: boolean }

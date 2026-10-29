@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0B">
+<title>Pay a bill · ScorchePay</title>
+<style>
+  :root {
+    --page: #0A0A0B; --surface: #111113; --surface2: #18181B; --line: rgba(255,255,255,.08);
+    --text: #F5F5F6; --muted: #9A9AA3; --faint: #68686F;
+    --ember: #FF4B1F; --ember2: #F23C0E; --gain: #2ED573; --loss: #FF4D6D;
+    --radius: 22px;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: var(--page); color: var(--text); }
+  body {
+    font: 15px/1.45 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, sans-serif;
+    min-height: 100dvh; display: flex; justify-content: center;
+    padding: max(24px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+    -webkit-font-smoothing: antialiased;
+  }
+  body::before {
+    content: ""; position: fixed; inset: -20% -20% auto; height: 70vh; pointer-events: none;
+    background: radial-gradient(closest-side, rgba(255,75,31,.18), transparent 70%);
+  }
+  main { position: relative; width: 100%; max-width: 420px; display: flex; flex-direction: column; gap: 14px; }
+  .brand { display: flex; align-items: center; gap: 8px; font-weight: 800; letter-spacing: -.02em; font-size: 15px; }
+  .brand i { width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(150deg, #FF6A3D, var(--ember2)); display: block; box-shadow: 0 0 18px rgba(255,75,31,.5); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; }
+  .ask { color: var(--muted); font-size: 14px; }
+  .ask b { color: var(--text); font-weight: 650; }
+  .amount { font-size: 44px; font-weight: 800; letter-spacing: -.035em; line-height: 1.05; margin: 10px 0 4px; font-variant-numeric: tabular-nums; }
+  .title { font-weight: 650; font-size: 17px; letter-spacing: -.01em; }
+  .meta { color: var(--muted); font-size: 13.5px; margin-top: 2px; }
+  .note { margin-top: 16px; padding: 12px 14px; background: var(--surface2); border-radius: 14px; color: var(--text); font-size: 14px; }
+  .note::before { content: "“"; color: var(--ember); font-weight: 800; margin-right: 2px; }
+  .note::after { content: "”"; color: var(--ember); font-weight: 800; margin-left: 2px; }
+  button, .btn {
+    appearance: none; border: 0; cursor: pointer; width: 100%; height: 54px; border-radius: 16px;
+    font-family: inherit; font-size: 16px; font-weight: 650; line-height: 1; color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px;
+    background: linear-gradient(150deg, #FF5A33, var(--ember2)); box-shadow: 0 10px 28px -10px rgba(255,75,31,.7);
+    text-decoration: none; transition: transform .12s ease, opacity .12s ease;
+  }
+  button:active, .btn:active { transform: scale(.985); }
+  button:disabled { opacity: .55; cursor: default; }
+  .ghost { background: var(--surface2); box-shadow: none; color: var(--text); border: 1px solid var(--line); }
+  .row { display: flex; gap: 10px; }
+  .qr { background: #fff; border-radius: 18px; padding: 14px; display: grid; place-items: center; aspect-ratio: 1; }
+  .qr img { width: 100%; height: auto; display: block; image-rendering: pixelated; }
+  .sats { display: flex; justify-content: space-between; align-items: baseline; margin: 14px 2px 12px; }
+  .sats b { font-size: 20px; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .timer { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+  .timer.low { color: var(--ember); }
+  .state { text-align: center; padding: 30px 22px; }
+  .badge { width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 16px; display: grid; place-items: center; }
+  .badge.ok { background: rgba(46,213,115,.12); color: var(--gain); }
+  .badge.wait { background: rgba(255,75,31,.12); color: var(--ember); }
+  .badge.err { background: rgba(255,77,109,.12); color: var(--loss); }
+  .state h2 { font-size: 21px; letter-spacing: -.02em; margin-bottom: 6px; }
+  .state p { color: var(--muted); }
+  .spin { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(255,75,31,.25); border-top-color: var(--ember); animation: spin .9s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .steps { display: flex; justify-content: center; gap: 6px; margin-top: 18px; }
+  .steps span { width: 26px; height: 4px; border-radius: 2px; background: var(--surface2); transition: background .3s; }
+  .steps span.on { background: var(--ember); }
+  .fine { color: var(--faint); font-size: 12.5px; text-align: center; line-height: 1.5; padding: 0 8px; }
+  .error { color: var(--loss); font-size: 14px; text-align: center; min-height: 1px; }
+  .skeleton { height: 180px; border-radius: var(--radius); background: linear-gradient(90deg, var(--surface) 0%, var(--surface2) 50%, var(--surface) 100%); background-size: 200% 100%; animation: shimmer 1.4s infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  [hidden] { display: none !important; }
+  @media (prefers-reduced-motion: reduce) { .spin, .skeleton { animation: none; } }
+</style>
+</head>
+<body>
+<main data-code="{{CODE}}">
+  <div class="brand"><i></i>ScorchePay</div>
+
+  <div id="loading" class="skeleton"></div>
+
+  <section id="bill" class="card" hidden>
+    <div class="ask"><b id="requester"></b> asked you to pay a bill</div>
+    <div class="amount" id="amount"></div>
+    <div class="title" id="title"></div>
+    <div class="meta" id="target"></div>
+    <div class="note" id="note" hidden></div>
+  </section>
+
+  <section id="start" hidden>
+    <button id="pay">Pay with Bitcoin ⚡</button>
+  </section>
+
+  <section id="invoice" class="card" hidden>
+    <div class="qr"><img id="qr" alt="Lightning invoice QR code" width="260" height="260"></div>
+    <div class="sats"><b id="sats"></b><span class="timer" id="timer"></span></div>
+    <div class="row">
+      <a class="btn" id="open">Open wallet</a>
+      <button class="ghost" id="copy">Copy invoice</button>
+    </div>
+  </section>
+
+  <section id="status" class="card state" hidden>
+    <div class="badge" id="badge"></div>
+    <h2 id="statusTitle"></h2>
+    <p id="statusText"></p>
+    <div class="steps" id="steps" hidden><span></span><span></span><span></span></div>
+  </section>
+
+  <section id="retry" hidden><button id="again">Get a new invoice</button></section>
+
+  <p class="error" id="error"></p>
+  <p class="fine">Pay from any Lightning wallet. If the bill can't be delivered, the payment is cancelled and your sats go straight back to your wallet.</p>
+</main>
+
+<script>
+(() => {
+  const code = document.querySelector("main").dataset.code;
+  const api = `/v1/public/bill-links/${code}`;
+  const $ = (id) => document.getElementById(id);
+  const show = (id, on = true) => { $(id).hidden = !on; };
+  const naira = (n) => "₦" + Number(n).toLocaleString("en-NG");
+  const icons = {
+    ok: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    err: '<svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 7v6M12 17h.01"/></svg>',
+    wait: '<div class="spin"></div>',
+  };
+  let link = null, poll = null, tick = null, shownInvoice = null;
+
+  async function call(path = "", opts = {}) {
+    const res = await fetch(api + path, opts);
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(json.error?.message || "Something went wrong. Try again.");
+    return json;
+  }
+
+  function status(kind, title, text, step) {
+    $("badge").className = "badge " + kind;
+    $("badge").innerHTML = icons[kind];
+    $("statusTitle").textContent = title;
+    $("statusText").textContent = text;
+    show("steps", step != null);
+    [...$("steps").children].forEach((s, i) => s.classList.toggle("on", step != null && i <= step));
+    show("status");
+  }
+
+  function render() {
+    show("loading", false);
+    $("requester").textContent = link.requester;
+    $("amount").textContent = naira(link.amount);
+    $("title").textContent = link.title;
+    $("target").textContent = link.target;
+    $("note").textContent = link.note || "";
+    show("note", !!link.note);
+    show("bill");
+
+    const p = link.payment;
+    const live = p && p.status === "awaitingPayment" && new Date(p.expiresAt) > new Date();
+    ["start", "invoice", "status", "retry"].forEach((id) => show(id, false));
+
+    if (link.status === "paid") {
+      status("ok", "Bill paid", p?.message || `${link.title} is done. Thank you!`);
+      return stop();
+    }
+    if (link.status === "cancelled") return status("err", "Request cancelled", `${link.requester} cancelled this request.`), stop();
+    if (link.status === "expired") return status("err", "Request expired", "Ask for a new link."), stop();
+    if (p && (p.status === "paid" || p.status === "fulfilling")) {
+      return status("wait", "Payment received", `Buying ${link.title}… your sats are only taken once it's delivered.`, p.status === "paid" ? 1 : 2);
+    }
+    if (p && p.status === "refundable") return status("err", "Being checked", "We're confirming this bill with the provider."), stop();
+    if (live) {
+      showInvoice(p);
+      return;
+    }
+    if (p && p.status === "refunded") {
+      status("err", "Bill couldn't be delivered", p.failureReason || "Your payment went back to your wallet.");
+      $("again").textContent = "Try again";
+      show("retry");
+      return stop();
+    }
+    if (p) {
+      $("again").textContent = "Get a new invoice";
+      show("retry");
+      return;
+    }
+    show("start");
+  }
+
+  function showInvoice(p) {
+    if (shownInvoice !== p.invoice) {
+      shownInvoice = p.invoice;
+      $("qr").src = `${api}/qr.svg?i=${p.invoice.slice(-12)}`;
+      $("open").href = "lightning:" + p.invoice;
+    }
+    $("sats").textContent = Number(p.sats).toLocaleString("en-NG") + " sats";
+    show("invoice");
+    clearInterval(tick);
+    const update = () => {
+      const left = Math.max(0, Math.round((new Date(p.expiresAt) - new Date()) / 1000));
+      $("timer").textContent = left ? `Expires in ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")}` : "Expired";
+      $("timer").classList.toggle("low", left < 30);
+      if (!left) { clearInterval(tick); refresh(); }
+    };
+    update();
+    tick = setInterval(update, 1000);
+    startPolling();
+  }
+
+  function startPolling() {
+    if (poll) return;
+    poll = setInterval(refresh, 2000);
+  }
+  function stop() { clearInterval(poll); clearInterval(tick); poll = null; }
+
+  async function refresh() {
+    try { link = await call(); $("error").textContent = ""; render(); }
+    catch (e) { $("error").textContent = e.message; }
+  }
+
+  async function getInvoice(button) {
+    button.disabled = true;
+    $("error").textContent = "";
+    try { link = await call("/invoice", { method: "POST" }); render(); }
+    catch (e) { $("error").textContent = e.message; }
+    finally { button.disabled = false; }
+  }
+
+  $("pay").onclick = () => getInvoice($("pay"));
+  $("again").onclick = () => getInvoice($("again"));
+  $("copy").onclick = async () => {
+    try { await navigator.clipboard.writeText(link.payment.invoice); $("copy").textContent = "Copied ✓"; }
+    catch { $("copy").textContent = "Copy failed"; }
+    setTimeout(() => ($("copy").textContent = "Copy invoice"), 1600);
+  };
+
+  refresh().then(() => { if (link?.status === "paying") startPolling(); });
+})();
+</script>
+</body>
+</html>
