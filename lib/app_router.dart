@@ -10,7 +10,6 @@ import 'features/dashboard/vtu_dashboard_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/onboarding/scorch_preview_screen.dart';
 import 'state/providers/app_state_notifier.dart';
-import 'state/providers/providers.dart';
 
 /// Screens that need a session. Signed out, they redirect to the
 /// signed-out entry point, then continue here after login.
@@ -75,9 +74,13 @@ String? _redirect(Ref ref, GoRouterState state) {
   final appState = ref.read(appStateProvider).valueOrNull;
   if (appState == null) return null;
   final location = state.matchedLocation;
+  // Read flags from appState rather than derived providers like
+  // showOnboardingProvider: this runs while appStateProvider is still
+  // notifying, before those have recomputed, so they'd be stale.
+  final local = appState.localState;
 
   // First run: onboarding before anything else.
-  if (ref.read(showOnboardingProvider)) {
+  if (local.showOnboarding) {
     return location == AppRoutes.onboarding ? null : AppRoutes.onboarding;
   }
 
@@ -98,7 +101,7 @@ String? _redirect(Ref ref, GoRouterState state) {
   }
   // Returning users go to login (over welcome), new users to welcome.
   final entry =
-      ref.read(hasLoggedInBeforeProvider) ? AppRoutes.login : AppRoutes.welcome;
+      local.username.isNotEmpty ? AppRoutes.login : AppRoutes.welcome;
   // Remember a protected destination so login can continue to it. Home is
   // the default after login anyway, so it isn't worth carrying.
   final continueTo = state.uri.toString();
