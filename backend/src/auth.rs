@@ -38,6 +38,10 @@ static PIN: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^\d{4}$").unwrap());
 
 pub fn routes() -> Router<Arc<App>> {
     Router::new()
+        .route("/dev/status", get(dev_status))
+        .route("/dev/demo-account", post(dev_demo_account))
+        .route("/auth/ask/start", post(ask_start))
+        .route("/auth/ask/verify", post(ask_verify))
         .route("/auth/signup/code", post(request_signup_code))
         .route("/auth/signup/verify", post(verify_signup_code))
         .route("/auth/usernames/{username}", get(check_username))
@@ -54,39 +58,81 @@ fn auth_error(message: impl Into<String>) -> ApiError {
 // Sessions
 // ---------------------------------------------------------------------
 
+/// What a session may do. `full` is a normal login. `ask` comes from the
+/// "ask for a top-up" page (phone code only, no PIN): it can create and view
+/// bill links, check customers and use the bill helper, and nothing else.
+const FULL: &str = "full";
+const ASK: &str = "ask";
+const ASK_SESSION_HOURS: i64 = 24;
+
 #[derive(Serialize, Deserialize)]
 struct Claims {
     sub: Uuid,
     exp: i64,
+    /// Tokens issued before scopes existed are full sessions.
+    #[serde(default = "full_scope")]
+    scope: String,
+}
+
+fn full_scope() -> String {
+    FULL.into()
 }
 
 fn issue_token(app: &App, user_id: Uuid) -> ApiResult<String> {
-    let claims = Claims { sub: user_id, exp: (Utc::now() + Duration::days(SESSION_DAYS)).timestamp() };
+    issue(app, user_id, FULL, Duration::days(SESSION_DAYS))
+}
+
+fn issue(app: &App, user_id: Uuid, scope: &str, lasts: Duration) -> ApiResult<String> {
+    let claims = Claims { sub: user_id, exp: (Utc::now() + lasts).timestamp(), scope: scope.into() };
     jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(app.config.jwt_secret.as_bytes()))
         .map_err(ApiError::internal)
 }
 
-/// The signed-in user, from `Authorization: Bearer <token>`.
+fn claims_from(parts: &Parts, app: &App) -> Result<Claims, ApiError> {
+    let signed_out = || ApiError::unauthorized("Your session has ended. Log in again.");
+    let token = parts
+        .headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(signed_out)?;
+    jsonwebtoken::decode::<Claims>(token, &DecodingKey::from_secret(app.config.jwt_secret.as_bytes()), &Validation::default())
+        .map(|data| data.claims)
+        .map_err(|_| signed_out())
+}
+
+/// The signed-in user, from `Authorization: Bearer <token>`. Only a full
+/// login: a session from the "ask" page is refused.
 pub struct AuthUser(pub Uuid);
 
 impl FromRequestParts<Arc<App>> for AuthUser {
     type Rejection = ApiError;
 
     async fn from_request_parts(parts: &mut Parts, app: &Arc<App>) -> Result<Self, Self::Rejection> {
-        let signed_out = || ApiError::unauthorized("Your session has ended. Log in again.");
-        let token = parts
-            .headers
-            .get(axum::http::header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .and_then(|v| v.strip_prefix("Bearer "))
-            .ok_or_else(signed_out)?;
-        let data = jsonwebtoken::decode::<Claims>(
-            token,
-            &DecodingKey::from_secret(app.config.jwt_secret.as_bytes()),
-            &Validation::default(),
-        )
-        .map_err(|_| signed_out())?;
-        Ok(AuthUser(data.claims.sub))
+        let claims = claims_from(parts, app)?;
+        if claims.scope != FULL {
+            return Err(ApiError::new(
+                StatusCode::FORBIDDEN,
+                "forbidden",
+                "This session can only ask for top-ups. Log in with your PIN to do more.",
+            ));
+        }
+        Ok(AuthUser(claims.sub))
+    }
+}
+
+/// A user who may ask for top-ups: a full login or an "ask" session.
+pub struct AskUser(pub Uuid);
+
+impl FromRequestParts<Arc<App>> for AskUser {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, app: &Arc<App>) -> Result<Self, Self::Rejection> {
+        let claims = claims_from(parts, app)?;
+        if claims.scope != FULL && claims.scope != ASK {
+            return Err(ApiError::unauthorized("Your session has ended. Log in again."));
+        }
+        Ok(AskUser(claims.sub))
     }
 }
 
@@ -104,14 +150,19 @@ struct CodeRequest {
 async fn request_signup_code(State(app): State<Arc<App>>, ApiJson(body): ApiJson<CodeRequest>) -> ApiResult<Json<Value>> {
     let contact = normalize_contact(&body.contact).ok_or_else(|| auth_error("Enter a valid phone number or email."))?;
     ensure_contact_free(&app, &contact).await?;
+    let id = create_otp(&app, &contact).await?;
+    Ok(Json(json!({ "verificationId": id })))
+}
 
+/// Makes (or replaces) a code for `contact` and returns the challenge's ID.
+async fn create_otp(app: &App, contact: &str) -> ApiResult<Uuid> {
     let id = Uuid::new_v4();
     let code = format!("{:06}", rand::thread_rng().gen_range(0..1_000_000));
     let mut tx = app.db.begin().await?;
-    sqlx::query("DELETE FROM otp_challenges WHERE contact = $1").bind(&contact).execute(&mut *tx).await?;
+    sqlx::query("DELETE FROM otp_challenges WHERE contact = $1").bind(contact).execute(&mut *tx).await?;
     sqlx::query("INSERT INTO otp_challenges (id, contact, code_hash, expires_at) VALUES ($1, $2, $3, $4)")
         .bind(id)
-        .bind(&contact)
+        .bind(contact)
         .bind(hash_code(id, &code))
         .bind(Utc::now() + Duration::minutes(OTP_MINUTES))
         .execute(&mut *tx)
@@ -120,8 +171,8 @@ async fn request_signup_code(State(app): State<Arc<App>>, ApiJson(body): ApiJson
 
     // No SMS or email sender yet (Termii or similar plugs in here). Until
     // then the code is only logged, so this needs OTP_DEV_CODE or log access.
-    tracing::info!(%contact, "sign-up code {code}");
-    Ok(Json(json!({ "verificationId": id })))
+    tracing::info!(%contact, "one-time code {code}");
+    Ok(id)
 }
 
 #[derive(Deserialize)]
@@ -131,15 +182,22 @@ struct VerifyRequest {
     code: String,
 }
 
-/// Checks the code and returns a sign-up token proving the contact.
-async fn verify_signup_code(State(app): State<Arc<App>>, ApiJson(body): ApiJson<VerifyRequest>) -> ApiResult<Json<Value>> {
-    let row: Option<(String, i32, chrono::DateTime<Utc>, Option<String>)> = sqlx::query_as(
-        "SELECT code_hash, attempts, expires_at, signup_token FROM otp_challenges WHERE id = $1",
+/// A code that checked out: the contact it proves, and the sign-up token
+/// already issued for it, if any.
+struct Verified {
+    contact: String,
+    existing_token: Option<String>,
+}
+
+/// Checks a one-time code: not expired, not guessed at too often, correct.
+async fn check_code(app: &App, verification_id: Uuid, code: &str) -> ApiResult<Verified> {
+    let row: Option<(String, String, i32, chrono::DateTime<Utc>, Option<String>)> = sqlx::query_as(
+        "SELECT contact, code_hash, attempts, expires_at, signup_token FROM otp_challenges WHERE id = $1",
     )
-    .bind(body.verification_id)
+    .bind(verification_id)
     .fetch_optional(&app.db)
     .await?;
-    let Some((code_hash, attempts, expires_at, existing_token)) = row else {
+    let Some((contact, code_hash, attempts, expires_at, existing_token)) = row else {
         return Err(auth_error("This code has expired. Request a new one."));
     };
     if expires_at < Utc::now() {
@@ -148,15 +206,18 @@ async fn verify_signup_code(State(app): State<Arc<App>>, ApiJson(body): ApiJson<
     if attempts >= OTP_MAX_ATTEMPTS {
         return Err(auth_error("Too many attempts. Request a new code."));
     }
-    let code = body.code.trim();
+    let code = code.trim();
     let dev_match = app.config.otp_dev_code.as_deref() == Some(code);
-    if !dev_match && hash_code(body.verification_id, code) != code_hash {
-        sqlx::query("UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = $1")
-            .bind(body.verification_id)
-            .execute(&app.db)
-            .await?;
+    if !dev_match && hash_code(verification_id, code) != code_hash {
+        sqlx::query("UPDATE otp_challenges SET attempts = attempts + 1 WHERE id = $1").bind(verification_id).execute(&app.db).await?;
         return Err(auth_error("Incorrect code."));
     }
+    Ok(Verified { contact, existing_token })
+}
+
+/// Checks the code and returns a sign-up token proving the contact.
+async fn verify_signup_code(State(app): State<Arc<App>>, ApiJson(body): ApiJson<VerifyRequest>) -> ApiResult<Json<Value>> {
+    let Verified { existing_token, .. } = check_code(&app, body.verification_id, &body.code).await?;
     let token = match existing_token {
         Some(token) => token,
         None => {
@@ -211,27 +272,161 @@ async fn sign_up(State(app): State<Arc<App>>, ApiJson(body): ApiJson<SignUpReque
     ensure_username_free(&app, &username, None).await?;
     ensure_contact_free(&app, &contact).await?;
 
-    let id = Uuid::new_v4();
     let pin_hash = hash_pin(&body.pin)?;
+    let taken = || auth_error("That username or contact was just taken. Try another.");
     let mut tx = app.db.begin().await?;
-    let inserted = sqlx::query(
-        "INSERT INTO users (id, username, display_name, contact, pin_hash) VALUES ($1, $2, $3, $4, $5)
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(id)
-    .bind(&username)
-    .bind(display_name)
-    .bind(&contact)
-    .bind(pin_hash)
-    .execute(&mut *tx)
-    .await?;
-    if inserted.rows_affected() == 0 {
-        // Lost a race for the username or contact.
-        return Err(auth_error("That username or contact was just taken. Try another."));
-    }
+    // Someone who asked for a top-up before has a guest account on this
+    // contact. Signing up claims it, so their links and history stay theirs.
+    let guest: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE contact = $1 AND is_guest FOR UPDATE")
+        .bind(&contact)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let id = match guest {
+        Some((id,)) => {
+            let claimed = sqlx::query(
+                "UPDATE users SET username = $2, display_name = $3, pin_hash = $4, is_guest = false, failed_logins = 0,
+                    locked_until = NULL WHERE id = $1",
+            )
+            .bind(id)
+            .bind(&username)
+            .bind(display_name)
+            .bind(&pin_hash)
+            .execute(&mut *tx)
+            .await;
+            match claimed {
+                Ok(_) => id,
+                Err(sqlx::Error::Database(e)) if e.is_unique_violation() => return Err(taken()),
+                Err(e) => return Err(e.into()),
+            }
+        }
+        None => {
+            let id = Uuid::new_v4();
+            let inserted = sqlx::query(
+                "INSERT INTO users (id, username, display_name, contact, pin_hash) VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(id)
+            .bind(&username)
+            .bind(display_name)
+            .bind(&contact)
+            .bind(&pin_hash)
+            .execute(&mut *tx)
+            .await?;
+            if inserted.rows_affected() == 0 {
+                return Err(taken());
+            }
+            id
+        }
+    };
     sqlx::query("DELETE FROM otp_challenges WHERE id = $1").bind(challenge_id).execute(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(json!({ "token": issue_token(&app, id)? })))
+}
+
+// ---------------------------------------------------------------------
+// Asking for a top-up without an account
+// ---------------------------------------------------------------------
+
+/// Sends a code to a phone number or email, for the "ask for a top-up" page.
+/// Unlike sign-up it works for numbers that already have an account.
+async fn ask_start(State(app): State<Arc<App>>, ApiJson(body): ApiJson<CodeRequest>) -> ApiResult<Json<Value>> {
+    let contact = normalize_contact(&body.contact).ok_or_else(|| auth_error("Enter a valid phone number or email."))?;
+    let id = create_otp(&app, &contact).await?;
+    // With OTP_DEV_CODE set (development), say so, so the page can show a hint.
+    Ok(Json(json!({ "verificationId": id, "demoCode": app.config.otp_dev_code })))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AskVerify {
+    verification_id: Uuid,
+    code: String,
+    /// What to call a new person, so the payer knows who is asking.
+    name: Option<String>,
+}
+
+/// Checks the code and returns an "ask" session: it can create and view bill
+/// links, check customers and use the bill helper, and nothing else. A
+/// number with no account gets a guest account (no PIN) to own its links.
+async fn ask_verify(State(app): State<Arc<App>>, ApiJson(body): ApiJson<AskVerify>) -> ApiResult<Json<Value>> {
+    let Verified { contact, .. } = check_code(&app, body.verification_id, &body.code).await?;
+    let name = body.name.as_deref().map(str::trim).filter(|n| !n.is_empty());
+    if name.is_some_and(|n| n.chars().count() > 80) {
+        return Err(auth_error("Use a name of up to 80 characters."));
+    }
+
+    let existing: Option<(Uuid, String, bool)> = sqlx::query_as("SELECT id, display_name, is_guest FROM users WHERE contact = $1")
+        .bind(&contact)
+        .fetch_optional(&app.db)
+        .await?;
+    let (id, display_name, is_guest) = match existing {
+        Some((id, display_name, true)) if name.is_some() && name != Some(display_name.as_str()) => {
+            let name = name.unwrap_or_default();
+            sqlx::query("UPDATE users SET display_name = $2 WHERE id = $1").bind(id).bind(name).execute(&app.db).await?;
+            (id, name.to_string(), true)
+        }
+        Some((id, display_name, is_guest)) => (id, display_name, is_guest),
+        None => {
+            let name = name.ok_or_else(|| auth_error("Enter your name, so they know it's you."))?;
+            let id = Uuid::new_v4();
+            // No PIN: the account is unusable for a PIN login until it's claimed.
+            let unusable = hash_pin(&random_hex(16))?;
+            sqlx::query(
+                "INSERT INTO users (id, username, display_name, contact, pin_hash, is_guest) VALUES ($1, $2, $3, $4, $5, true)
+                 ON CONFLICT DO NOTHING",
+            )
+            .bind(id)
+            .bind(format!("guest_{}", random_hex(5)))
+            .bind(name)
+            .bind(&contact)
+            .bind(unusable)
+            .execute(&app.db)
+            .await?;
+            // Another request may have created it first: read back whichever won.
+            let (id, display_name, is_guest): (Uuid, String, bool) =
+                sqlx::query_as("SELECT id, display_name, is_guest FROM users WHERE contact = $1").bind(&contact).fetch_one(&app.db).await?;
+            (id, display_name, is_guest)
+        }
+    };
+    sqlx::query("DELETE FROM otp_challenges WHERE id = $1").bind(body.verification_id).execute(&app.db).await?;
+    let token = issue(&app, id, ASK, Duration::hours(ASK_SESSION_HOURS))?;
+    Ok(Json(json!({ "token": token, "displayName": display_name, "isGuest": is_guest })))
+}
+
+// ---------------------------------------------------------------------
+// Development helpers (DEV_SIMULATE_PAYMENTS)
+// ---------------------------------------------------------------------
+
+fn require_dev(app: &App) -> ApiResult<()> {
+    if app.config.dev_simulate_payments {
+        Ok(())
+    } else {
+        Err(ApiError::not_found("Development features are off (DEV_SIMULATE_PAYMENTS)."))
+    }
+}
+
+/// Whether this server offers development helpers. 404 when it doesn't.
+async fn dev_status(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    require_dev(&app)?;
+    Ok(Json(json!({ "demoAccounts": true, "simulatePayments": true })))
+}
+
+/// A throwaway account for trying the API and the web pages: signed in,
+/// tier 0, with a known PIN. Only in development.
+async fn dev_demo_account(State(app): State<Arc<App>>) -> ApiResult<Json<Value>> {
+    require_dev(&app)?;
+    let id = Uuid::new_v4();
+    let tag = random_hex(3);
+    let username = format!("demo_{tag}");
+    let pin = "1234";
+    sqlx::query("INSERT INTO users (id, username, display_name, contact, pin_hash) VALUES ($1, $2, 'Demo user', $3, $4)")
+        .bind(id)
+        .bind(&username)
+        .bind(format!("demo-{tag}@demo.local"))
+        .bind(hash_pin(pin)?)
+        .execute(&app.db)
+        .await?;
+    Ok(Json(json!({ "username": username, "pin": pin, "token": issue_token(&app, id)? })))
 }
 
 // ---------------------------------------------------------------------
@@ -370,7 +565,9 @@ async fn ensure_username_free(app: &App, name: &str, except: Option<Uuid>) -> Ap
 }
 
 async fn ensure_contact_free(app: &App, contact: &str) -> ApiResult<()> {
-    let taken: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE contact = $1")
+    // A guest account (made by the "ask" page) doesn't count: signing up with
+    // its contact claims it.
+    let taken: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE contact = $1 AND NOT is_guest")
         .bind(contact)
         .fetch_optional(&app.db)
         .await?;

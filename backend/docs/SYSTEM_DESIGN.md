@@ -651,6 +651,30 @@ proves the whole payment flow on a private local network.
 - **If the provider gives no answer**, the order waits in `fulfilling`
   for a staff review instead of being bought twice.
 
+## 11b. Spending rules, asking without an account, and the bill helper
+
+Three small features sit around the order flow.
+
+**Spending rules** (`policy.rs`). Each user can set a per-payment cap, a
+daily cap and "trusted numbers only". `policy::check` runs right after a
+bill is described and *before* its invoice is created, from every path that
+can start a payment: a new order, a requote, a bill link and the helper. A
+refusal is `422 policyBlocked` and is written to `policy_events`. The rules
+only narrow what the KYC tier allows.
+
+**Ask sessions** (`auth.rs`). `/v1/auth/ask/*` exchanges a phone code for a
+token whose scope is `ask`. The `AuthUser` extractor accepts only `full`
+sessions, and a separate `AskUser` extractor, used on just the customer
+check, bill links and the helper, accepts both. So a verified phone number
+can create links but can't reach orders, KYC or the rules. A number with no
+account gets a guest user (`is_guest`, no usable PIN); signing up later with
+the same contact claims it.
+
+**Bill helper** (`helper.rs`). A pure parser turns a sentence into what was
+understood (`Parsed`), then `resolve` matches that to the catalog. The
+handler runs the result through `describe` and the user's rules and returns
+a draft. It never creates an order.
+
 ## 12. Not built yet
 
 - N3TData for real electricity and TV (the fake stands in).

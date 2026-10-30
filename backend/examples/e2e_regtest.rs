@@ -12,6 +12,10 @@
 //!   even after its owner requotes it;
 //! - requests that trip up real HTTP clients get a proper JSON answer;
 //! - profile photos upload, show on /me, serve, and delete;
+//! - a spending policy blocks unknown numbers and over-cap payments, the
+//!   bill helper obeys it, and every decision is logged;
+//! - someone with only a phone code can ask for a top-up, can do nothing
+//!   else, and keeps their links when they sign up;
 //! - the payer's balance only drops for delivered bills.
 
 use std::str::FromStr;
@@ -242,7 +246,70 @@ async fn main() -> Result<()> {
     ensure!(env.raw("", "GET", &path, None, vec![]).await?.status() == 404, "deleted photo still served");
     step("profile photo: uploaded, on /me, served with its type, SVG refused, deleted");
 
-    // 12. Only the delivered bills cost anything.
+    // 12. Spending policy: a trusted-numbers-only rule with a cap.
+    let airtime = |target: &str, amount: i64| json!({ "billerId": "mtn-airtime", "target": target, "amount": amount });
+    env.call(&token, "PUT", "/v1/policy", Some(json!({ "perPaymentCap": 1000, "trustedOnly": true }))).await?;
+    let blocked = env.call(&token, "POST", "/v1/vtu/orders", Some(airtime("08031234567", 500))).await;
+    ensure!(blocked.is_err_and(|e| e.to_string().contains("policyBlocked") && e.to_string().contains("trusted list")), "an untrusted number wasn't blocked");
+    env.call(&token, "POST", "/v1/policy/trusted", Some(json!({ "label": "mama", "target": "0803 123 4567" }))).await?;
+    let over = env.call(&token, "POST", "/v1/vtu/orders", Some(airtime("08031234567", 1500))).await;
+    ensure!(over.is_err_and(|e| e.to_string().contains("policyBlocked") && e.to_string().contains("per payment")), "the cap wasn't enforced");
+    env.call(&token, "POST", "/v1/vtu/orders", Some(airtime("08031234567", 500))).await.context("a trusted number within the cap was refused")?;
+    // The bill helper obeys the same rules: it drafts, and says what would be blocked.
+    let untrusted = env.call(&token, "POST", "/v1/helper/draft", Some(json!({ "text": "send ₦500 airtime to 0805 123 4567" }))).await?;
+    ensure!(untrusted["ready"] == false && untrusted["policy"]["reason"] == "untrustedTarget", "helper draft: {untrusted}");
+    let by_name = env.call(&token, "POST", "/v1/helper/draft", Some(json!({ "text": "abeg load 500 credit for mama" }))).await?;
+    ensure!(by_name["ready"] == true && by_name["request"]["target"] == "08031234567", "helper draft by name: {by_name}");
+    ensure!(by_name["request"]["billerId"] == "mtn-airtime", "0803 should be guessed as MTN: {by_name}");
+    let link_blocked = env.call(&token, "POST", "/v1/bill-links", Some(airtime("08051234567", 500))).await;
+    ensure!(link_blocked.is_err_and(|e| e.to_string().contains("policyBlocked")), "a bill link to an untrusted number was allowed");
+    let events = env.call(&token, "GET", "/v1/policy/events", None).await?;
+    let outcomes: Vec<&str> = events.as_array().unwrap().iter().filter_map(|e| e["outcome"].as_str()).collect();
+    ensure!(outcomes.iter().filter(|o| **o == "blocked").count() >= 4 && outcomes.contains(&"allowed"), "the log shows {outcomes:?}");
+    ensure!(events.as_array().unwrap().iter().all(|e| !e["target"].as_str().unwrap_or("").contains("08051234567")), "the log kept a full number");
+    env.call(&token, "PUT", "/v1/policy", Some(json!({ "perPaymentCap": null, "trustedOnly": false }))).await?;
+    step(&format!("spending policy blocked an unknown number, an over-cap payment and a bill link; the helper obeyed it; {} decisions logged", outcomes.len()));
+
+    // 13. Asking for a top-up with only a phone code: no PIN, no wallet, no app.
+    let n = std::process::id();
+    let contact = format!("ask{n}@example.com");
+    let started = env.call("", "POST", "/v1/auth/ask/start", Some(json!({ "contact": contact }))).await?;
+    let verification_id = started["verificationId"].clone();
+    let nameless = env.call("", "POST", "/v1/auth/ask/verify", Some(json!({ "verificationId": verification_id, "code": "123456" }))).await;
+    ensure!(nameless.is_err_and(|e| e.to_string().contains("name")), "a new person was let in without a name");
+    let started = env.call("", "POST", "/v1/auth/ask/start", Some(json!({ "contact": contact }))).await?;
+    let session = env
+        .call("", "POST", "/v1/auth/ask/verify", Some(json!({ "verificationId": started["verificationId"], "code": "123456", "name": "Aunty Ladi" })))
+        .await?;
+    let ask = session["token"].as_str().unwrap().to_string();
+    ensure!(session["isGuest"] == true && session["displayName"] == "Aunty Ladi", "ask session: {session}");
+    env.call(&ask, "POST", "/v1/vtu/customers/validate", Some(json!({ "billerId": "ikedc", "target": "12345678901", "optionId": "prepaid" }))).await?;
+    let asked = env.call(&ask, "POST", "/v1/bill-links", Some(json!({ "billerId": "gotv", "target": "1234567890", "planId": "gotv-jolli", "note": "GOtv for mama" }))).await?;
+    let asked_code = asked["code"].as_str().unwrap().to_string();
+    let seen = env.call("", "GET", &format!("/v1/public/bill-links/{asked_code}"), None).await?;
+    ensure!(seen["requester"] == "Aunty Ladi" && seen["status"] == "open", "the payer sees: {seen}");
+    let drafted = env.call(&ask, "POST", "/v1/helper/draft", Some(json!({ "text": "dstv compact 1234567890" }))).await?;
+    ensure!(drafted["ready"] == true && drafted["request"]["planId"] == "dstv-compact", "ask session helper: {drafted}");
+    for (method, path) in [("GET", "/v1/me"), ("GET", "/v1/vtu/orders"), ("GET", "/v1/policy"), ("POST", "/v1/kyc/verify")] {
+        let r = env.raw(&ask, method, path, None, vec![]).await?;
+        ensure!(r.status() == 403, "an ask session reached {method} {path} ({})", r.status());
+    }
+    let r = env.raw(&ask, "POST", "/v1/vtu/orders", Some("application/json"), airtime("08031234567", 500).to_string().into_bytes()).await?;
+    ensure!(r.status() == 403, "an ask session could create an order ({})", r.status());
+    // Later, signing up with the same contact claims the account and keeps its links.
+    let code = env.call("", "POST", "/v1/auth/signup/code", Some(json!({ "contact": contact }))).await?;
+    let verified = env.call("", "POST", "/v1/auth/signup/verify", Some(json!({ "verificationId": code["verificationId"], "code": "123456" }))).await?;
+    let claimed = env
+        .call("", "POST", "/v1/auth/signup", Some(json!({ "signUpToken": verified["signUpToken"], "displayName": "Ladi", "username": format!("ladi_{n}"), "pin": "4321" })))
+        .await?;
+    let full = claimed["token"].as_str().unwrap();
+    let links = env.call(full, "GET", "/v1/bill-links", None).await?;
+    ensure!(links.as_array().unwrap().iter().any(|l| l["code"] == asked_code.as_str()), "the claimed account lost its link");
+    let me = env.call(full, "GET", "/v1/me", None).await?;
+    ensure!(me["displayName"] == "Ladi", "claimed account: {me}");
+    step("asked for a top-up with a phone code only; that session is limited to links and drafts; signing up later claimed the account and its link");
+
+    // 14. Only the delivered bills cost anything.
     let spent = start_balance - lightning_balance(&payer);
     let expected = (sats + link_sats + data_sats) as u64;
     ensure!(spent == expected, "payer spent {spent} sats, expected {expected}");
@@ -342,6 +409,7 @@ impl Env {
         let request = match method {
             "GET" => self.http.get(url),
             "DELETE" => self.http.delete(url),
+            "PUT" => self.http.put(url),
             _ => self.http.post(url),
         };
         let request = if token.is_empty() { request } else { request.bearer_auth(token) };

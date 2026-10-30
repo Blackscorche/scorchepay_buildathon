@@ -7,11 +7,18 @@ mod bill_links;
 mod catalog;
 mod config;
 mod error;
+mod helper;
+mod assistant;
+mod llm;
+mod stt;
+mod tts;
 mod json;
 mod kyc;
 mod lightning;
 mod orders;
+mod pages;
 mod photos;
+mod policy;
 mod providers;
 mod rates;
 
@@ -95,7 +102,7 @@ async fn main() -> Result<()> {
     tokio::spawn(orders::run_events(app.clone()));
     tokio::spawn(orders::run_fulfilment(app.clone()));
 
-    let api = Router::new().merge(auth::routes()).merge(kyc::routes()).merge(orders::routes());
+    let api = Router::new().merge(auth::routes()).merge(kyc::routes()).merge(orders::routes()).merge(policy::routes()).merge(helper::routes()).merge(tts::routes()).merge(assistant::routes()).merge(stt::routes());
     let router = Router::new()
         .route("/health", get(|| async { "ok" }))
         // API docs: Swagger UI and the OpenAPI spec it reads.
@@ -106,9 +113,11 @@ async fn main() -> Result<()> {
         )
         .nest("/v1", api)
         .merge(bill_links::routes())
+        .merge(pages::routes())
         .merge(photos::routes())
         .merge(admin::routes())
         .layer(axum::middleware::from_fn(json::json_errors))
+        .layer(tower_http::compression::CompressionLayer::new())
         .layer(CorsLayer::permissive())
         .layer(TraceLayer::new_for_http())
         .with_state(app.clone());

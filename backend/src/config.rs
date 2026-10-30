@@ -50,6 +50,12 @@ pub struct Config {
     pub fallback_ngn_per_btc: Option<f64>,
     /// Optional CoinGecko demo API key, for higher rate limits.
     pub coingecko_api_key: Option<String>,
+    /// Optional AI fallback for the bill helper (any OpenAI-compatible API).
+    pub llm: Option<crate::llm::LlmConfig>,
+    /// Optional natural voice for the voice assistant (OpenAI-compatible).
+    pub tts: Option<crate::tts::TtsConfig>,
+    /// The Whisper model that listens when a phone can't (see `stt.rs`).
+    pub stt_model: String,
     /// Added to the market rate, in basis points (150 = 1.5%).
     pub spread_bps: u32,
     pub quote_secs: u32,
@@ -109,6 +115,27 @@ impl Config {
                 .transpose()
                 .context("FALLBACK_NGN_PER_BTC")?,
             coingecko_api_key: optional("COINGECKO_API_KEY"),
+            stt_model: var_or("STT_MODEL", "whisper-large-v3"),
+            tts: optional("TTS_BASE_URL").map(|base_url| crate::tts::TtsConfig {
+                base_url,
+                api_key: optional("TTS_API_KEY"),
+                model: var_or("TTS_MODEL", "tts-1"),
+                voice: var_or("TTS_VOICE", "en-NG-EzinneNeural"),
+                // Hausa has a free voice by default; Yoruba and Igbo have none, so
+                // they use the default voice until TTS_VOICE_YO / TTS_VOICE_IG say otherwise.
+                voices: [("ha", "gtts:ha"), ("yo", ""), ("ig", ""), ("pcm", "")]
+                    .into_iter()
+                    .filter_map(|(lang, default)| {
+                        let value = optional(&format!("TTS_VOICE_{}", lang.to_uppercase())).unwrap_or_else(|| default.to_string());
+                        (!value.is_empty()).then(|| (lang.to_string(), value))
+                    })
+                    .collect(),
+            }),
+            llm: optional("LLM_BASE_URL").map(|base_url| crate::llm::LlmConfig {
+                base_url,
+                api_key: optional("LLM_API_KEY"),
+                model: var_or("LLM_MODEL", "llama-3.1-8b-instant"),
+            }),
             spread_bps: parse_or("SPREAD_BPS", 150)?,
             quote_secs: parse_or("QUOTE_SECS", 120)?,
             airtime_data_provider,
@@ -126,6 +153,9 @@ impl Config {
         }
         if config.airtime_data_provider == ProviderKind::SmePlug && config.smeplug_key.is_none() {
             bail!("VTU_PROVIDER=smeplug needs SMEPLUG_API_KEY");
+        }
+        if config.airtime_data_provider == ProviderKind::SmePlug && config.dev_simulate_payments {
+            bail!("DEV_SIMULATE_PAYMENTS must be false when VTU_PROVIDER=smeplug; simulated payment could spend the live provider wallet");
         }
         if config.kyc_provider == KycProviderKind::MonoProve
             && (config.mono_secret_key.is_none() || config.mono_webhook_secret.is_none())

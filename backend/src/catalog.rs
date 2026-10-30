@@ -331,12 +331,18 @@ const SMARTCARD: Target = Target {
     error_text: "Smartcard numbers are 10 or 11 digits.",
 };
 
-const DISCOS: [(&str, &str, &str, &str); 5] = [
+const DISCOS: [(&str, &str, &str, &str); 11] = [
     ("ikedc", "Ikeja Electric", "Ikeja", "#E30613"),
     ("ekedc", "Eko Electric", "Eko", "#0072BC"),
     ("aedc", "Abuja Electric", "Abuja", "#00A651"),
     ("phed", "Port Harcourt Electric", "PH", "#F7941D"),
     ("ibedc", "Ibadan Electric", "Ibadan", "#662D91"),
+    ("kaedco", "Kaduna Electric", "Kaduna", "#1B8A5A"),
+    ("kedco", "Kano Electric", "Kano", "#C8102E"),
+    ("jed", "Jos Electric", "Jos", "#0B6FB8"),
+    ("eedc", "Enugu Electric", "Enugu", "#E8A100"),
+    ("bedc", "Benin Electric", "Benin", "#7A3FA0"),
+    ("yedc", "Yola Electric", "Yola", "#2A7F62"),
 ];
 
 type TvPlans = &'static [(&'static str, &'static str, i64)];

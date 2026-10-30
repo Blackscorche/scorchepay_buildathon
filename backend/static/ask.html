@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0B">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23FF4B1F'/%3E%3C/svg%3E">
+<title>Ask for a top-up · ScorchePay</title>
+<style>
+/*{{COMMON_CSS}}*/
+h1 { margin: 6px 0 8px; }
+.helper textarea { min-height: 70px; }
+.draft { background: var(--surface2); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 14px; }
+.draft b { font-weight: 650; }
+.draft .note-line { color: var(--muted); font-size: 13px; margin-top: 4px; }
+.draft.bad { border: 1px solid rgba(255,77,109,.4); }
+.customer { color: var(--gain); font-size: 14px; font-weight: 550; margin-top: 6px; }
+.linkbox { background: var(--surface2); border-radius: var(--radius-sm); padding: 12px 14px; word-break: break-all; font-size: 14px; }
+.divider { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 12.5px; letter-spacing: .04em; text-transform: uppercase; }
+.divider::before, .divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="top">
+    <div class="brand"><i></i>ScorchePay</div>
+    <div class="lang"><select id="lang" aria-label="Language"></select></div>
+  </div>
+  <div class="progress" id="progress"><span class="on"></span><span></span><span></span></div>
+
+  <!-- 1. Verify -->
+  <section id="verify" class="stack">
+    <div>
+      <h1 data-i18n="title">Ask for a top-up</h1>
+      <p class="sub" data-i18n="intro">Need light, airtime or data? Ask someone with Bitcoin to pay for it from anywhere. You don't need a wallet or an app.</p>
+    </div>
+    <div class="card stack">
+      <div id="step-contact" class="stack">
+        <div><label for="name" data-i18n="your_name">Your name</label><input id="name" autocomplete="name" data-i18n-ph="name_ph" placeholder="e.g. Ladi"></div>
+        <div><label for="contact" data-i18n="contact">Your phone number or email</label><input id="contact" inputmode="tel" autocomplete="tel" data-i18n-ph="contact_ph" placeholder="0803 123 4567"></div>
+        <button id="send" data-i18n="send_code">Send code</button>
+      </div>
+      <div id="step-code" class="stack" hidden>
+        <div><label for="code" data-i18n="code">Code we sent you</label><input id="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456"></div>
+        <p class="hint" id="demo" hidden></p>
+        <button id="check" data-i18n="verify">Verify</button>
+        <button class="link" id="resend" data-i18n="send_code">Send code</button>
+      </div>
+      <p class="err" id="err1"></p>
+    </div>
+  </section>
+
+  <!-- 2. Say what you need -->
+  <section id="request" class="stack" hidden>
+    <div class="spread">
+      <h1 id="hi"></h1>
+      <button class="link" id="restart" data-i18n="not_you">Not you? Start again</button>
+    </div>
+
+    <div class="card stack helper">
+      <h2 data-i18n="helper_title">Just say what you need</h2>
+      <textarea id="say" data-i18n-ph="helper_ph" placeholder="e.g. 5k light for meter 12345678901 Kaduna"></textarea>
+      <button class="ghost small" id="understand" data-i18n="understand">Understand</button>
+      <div class="draft" id="draft" hidden></div>
+    </div>
+
+    <div class="divider"><span data-i18n="or_choose">Or choose</span></div>
+
+    <div class="tiles" id="tiles"></div>
+
+    <div class="card stack" id="form" hidden>
+      <div id="biller-wrap"><label for="biller" id="biller-label"></label><select id="biller"></select></div>
+      <div id="option-wrap" hidden><label for="option" id="option-label"></label><select id="option"></select></div>
+      <div>
+        <label for="target" id="target-label"></label>
+        <input id="target" inputmode="numeric" autocomplete="off">
+        <div class="err" id="target-err"></div>
+        <div class="customer" id="customer" hidden></div>
+      </div>
+      <div id="amount-wrap" hidden>
+        <label for="amount" data-i18n="amount">Amount (₦)</label>
+        <input id="amount" inputmode="numeric" placeholder="1000">
+        <div class="chips" id="presets" style="margin-top:8px"></div>
+        <div class="hint" id="range" style="margin-top:6px"></div>
+      </div>
+      <div id="plan-wrap" hidden><label for="plan" id="plan-label"></label><select id="plan"></select></div>
+      <div><label for="note" data-i18n="note">Message for the person paying (optional)</label><input id="note" maxlength="140" data-i18n-ph="note_ph" placeholder="e.g. Light for the house this week 🙏"></div>
+      <button id="create" data-i18n="create">Create my link</button>
+      <p class="err" id="err2"></p>
+    </div>
+  </section>
+
+  <!-- 3. Share -->
+  <section id="done" class="stack" hidden>
+    <div class="card stack">
+      <div class="badge ok" style="margin:0"><svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <h1 data-i18n="done_title">Your link is ready</h1>
+      <p class="sub" id="done-text"></p>
+      <div class="linkbox mono" id="linkbox"></div>
+      <a class="btn" id="whatsapp" target="_blank" rel="noopener" data-i18n="share_whatsapp">Share on WhatsApp</a>
+      <button class="ghost" id="copylink" data-i18n="copy_link">Copy link</button>
+    </div>
+    <button class="link" id="another" data-i18n="another" style="align-self:center">Ask for another</button>
+  </section>
+
+  <p class="fine" data-i18n="fine">No account, wallet or app needed. If the bill can't be delivered, the person paying gets their sats back.</p>
+</main>
+
+<script>/*{{COMMON_JS}}*/</script>
+<script>
+(function () {
+  var needs = {
+    en: { what: "what you need", amount: "the amount", number: "the phone number", network: "the network", plan: "the data size", disco: "the electricity company", meterNumber: "the meter number", provider: "the TV provider", smartcard: "the smartcard number", package: "the package" },
+    ha: { what: "abin da kake buƙata", amount: "adadin kuɗi", number: "lambar waya", network: "layin sadarwa", plan: "girman data", disco: "kamfanin wuta", meterNumber: "lambar meter", provider: "kamfanin TV", smartcard: "lambar smartcard", package: "fakitin" },
+    pcm: { what: "wetin you need", amount: "the amount", number: "the phone number", network: "the network", plan: "the data size", disco: "the light company", meterNumber: "the meter number", provider: "the TV company", smartcard: "the smartcard number", package: "the package" },
+  };
+  function add(lang, base) { var o = {}; Object.keys(needs[lang]).forEach(function (k) { o["need_" + k] = needs[lang][k]; }); var m = {}; m[lang] = Object.assign(base, o); I18N.add(m); }
+  add("en", {
+    title: "Ask for a top-up", intro: "Need light, airtime or data? Ask someone with Bitcoin to pay for it from anywhere. You don't need a wallet or an app.",
+    your_name: "Your name", name_ph: "e.g. Ladi", contact: "Your phone number or email", contact_ph: "0803 123 4567",
+    send_code: "Send code", code: "Code we sent you", verify: "Verify", demo_hint: "Demo mode: the code is {code}.",
+    hi: "Hi {name}", not_you: "Not you? Start again", helper_title: "Just say what you need",
+    helper_ph: "e.g. 5k light for meter 12345678901 Kaduna", understand: "Understand", or_choose: "Or choose",
+    cat_airtime: "Airtime", cat_airtime_sub: "Top up a phone", cat_data: "Data", cat_data_sub: "Data bundle",
+    cat_electricity: "Light", cat_electricity_sub: "Prepaid or postpaid meter", cat_tv: "TV", cat_tv_sub: "DStv, GOtv, StarTimes",
+    provider: "Provider", amount: "Amount (₦)", plan: "Choose a plan", package: "Choose a package",
+    paying_for: "Paying for {name}", note: "Message for the person paying (optional)", note_ph: "e.g. Light for the house this week 🙏",
+    create: "Create my link", need: "I still need: {list}.", understood: "Here's what I understood", range: "Between {min} and {max}", min_only: "At least {min}",
+    done_title: "Your link is ready", done_text: "Send it to someone who can pay. They pay with any Lightning wallet, and {title} goes straight to {target}.",
+    copy_link: "Copy link", copied: "Copied ✓", share_whatsapp: "Share on WhatsApp", share_text: "Please help me pay for {title}: {url}",
+    another: "Ask for another", fine: "No account, wallet or app needed. If the bill can't be delivered, the person paying gets their sats back.",
+    generic_error: "Something went wrong. Try again.", enter_name: "Enter your name, so they know it's you.",
+  });
+  add("ha", {
+    title: "Nemi a biya maka bill", intro: "Kana buƙatar wuta, airtime ko data? Ka roƙi wanda yake da Bitcoin ya biya maka daga ko'ina. Ba sai kana da wallet ko app ba.",
+    your_name: "Sunanka", name_ph: "misali Ladi", contact: "Lambar wayarka ko email", contact_ph: "0803 123 4567",
+    send_code: "Aika lambar tabbatarwa", code: "Lambar da muka aiko maka", verify: "Tabbatar", demo_hint: "Na gwaji: lambar ita ce {code}.",
+    hi: "Sannu {name}", not_you: "Ba kai ba ne? Fara daga farko", helper_title: "Faɗa mana abin da kake buƙata",
+    helper_ph: "misali 5k wuta meter 12345678901 Kaduna", understand: "Fahimta", or_choose: "Ko ka zaɓa",
+    cat_airtime: "Airtime", cat_airtime_sub: "Cika waya", cat_data: "Data", cat_data_sub: "Fakitin data",
+    cat_electricity: "Wuta", cat_electricity_sub: "Meter na prepaid ko postpaid", cat_tv: "TV", cat_tv_sub: "DStv, GOtv, StarTimes",
+    provider: "Kamfani", amount: "Adadin kuɗi (₦)", plan: "Zaɓi tsari", package: "Zaɓi fakiti",
+    paying_for: "Ana biya wa {name}", note: "Saƙo ga mai biya (ba dole ba)", note_ph: "misali Wuta ta gida na wannan mako 🙏",
+    create: "Ƙirƙiri link ɗina", need: "Har yanzu ina buƙatar: {list}.", understood: "Abin da na fahimta", range: "Tsakanin {min} da {max}", min_only: "Aƙalla {min}",
+    done_title: "Link ɗinka ya shirya", done_text: "Aika shi ga wanda zai iya biya. Zai biya da kowane Lightning wallet, kuma {title} zai tafi kai tsaye zuwa {target}.",
+    copy_link: "Kwafi link", copied: "An kwafa ✓", share_whatsapp: "Aika ta WhatsApp", share_text: "Don Allah ka taimaka min in biya {title}: {url}",
+    another: "Nemi wani", fine: "Ba sai da account, wallet ko app ba. Idan ba a iya kai bill ɗin ba, mai biya zai dawo da sats ɗinsa.",
+    generic_error: "Wani abu ya faru. Sake gwadawa.", enter_name: "Rubuta sunanka, don su san kai ne.",
+  });
+  add("pcm", {
+    title: "Ask make dem pay for you", intro: "You need light, airtime or data? Ask person wey get Bitcoin make im pay from anywhere. You no need wallet or app.",
+    your_name: "Your name", name_ph: "e.g. Ladi", contact: "Your phone number or email", contact_ph: "0803 123 4567",
+    send_code: "Send code", code: "Code wey we send you", verify: "Verify", demo_hint: "Demo mode: the code na {code}.",
+    hi: "How far {name}", not_you: "No be you? Start again", helper_title: "Just talk wetin you need",
+    helper_ph: "e.g. 5k light for meter 12345678901 Kaduna", understand: "Understand", or_choose: "Or choose",
+    cat_airtime: "Airtime", cat_airtime_sub: "Credit a phone", cat_data: "Data", cat_data_sub: "Data bundle",
+    cat_electricity: "Light (NEPA)", cat_electricity_sub: "Prepaid or postpaid meter", cat_tv: "TV", cat_tv_sub: "DStv, GOtv, StarTimes",
+    provider: "Company", amount: "Amount (₦)", plan: "Choose plan", package: "Choose package",
+    paying_for: "We dey pay for {name}", note: "Message for the person wey go pay (no be must)", note_ph: "e.g. Light for house this week 🙏",
+    create: "Make my link", need: "I still need: {list}.", understood: "Wetin I understand", range: "Between {min} and {max}", min_only: "At least {min}",
+    done_title: "Your link don ready", done_text: "Send am to person wey fit pay. Dem go pay with any Lightning wallet, and {title} go enter {target} straight.",
+    copy_link: "Copy link", copied: "I don copy ✓", share_whatsapp: "Share for WhatsApp", share_text: "Abeg help me pay for {title}: {url}",
+    another: "Ask for another", fine: "You no need account, wallet or app. If the bill no deliver, the person wey pay go get im sats back.",
+    generic_error: "Something happen. Try again.", enter_name: "Put your name, make dem know na you.",
+  });
+  var t = I18N.t;
+
+  var $ = function (id) { return document.getElementById(id); };
+  var show = function (id, on) { $(id).hidden = on === false; };
+  var session = null;       // { token, name }
+  var verificationId = null;
+  var catalog = null;
+  var category = null;      // "airtime" | "data" | "electricity" | "tv"
+  var customerTimer = null;
+  var CATEGORIES = [
+    { id: "airtime", icon: '<path d="M7 3h10a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2"/>' },
+    { id: "data", icon: '<path d="M4 9a12 12 0 0 1 16 0M7 12.5a8 8 0 0 1 10 0M10 16a4 4 0 0 1 4 0M12 19.5h.01"/>' },
+    { id: "electricity", icon: '<path d="M13 2L4 14h7l-1 8 9-12h-7z"/>' },
+    { id: "tv", icon: '<path d="M4 6h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1zM8 21h8"/>' },
+  ];
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { "content-type": "application/json" };
+    if (session) headers.authorization = "Bearer " + session.token;
+    return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (json) {
+        if (res.status === 401 && session) { forget(); }
+        if (!res.ok) throw new Error((json.error && json.error.message) || t("generic_error"));
+        return json;
+      });
+    });
+  }
+
+  function remember() { try { sessionStorage.setItem("ask", JSON.stringify(session)); } catch (e) {} }
+  function forget() { session = null; try { sessionStorage.removeItem("ask"); } catch (e) {} step("verify"); }
+  function step(name) {
+    ["verify", "request", "done"].forEach(function (s) { show(s, s === name); });
+    var idx = { verify: 0, request: 1, done: 2 }[name];
+    Array.prototype.forEach.call($("progress").children, function (s, i) { s.classList.toggle("on", i <= idx); });
+    window.scrollTo(0, 0);
+  }
+
+  // ---- 1. verify
+  function sendCode() {
+    $("err1").textContent = "";
+    var name = $("name").value.trim();
+    if (!name) { $("err1").textContent = t("enter_name"); return; }
+    $("send").disabled = true;
+    api("/v1/auth/ask/start", { method: "POST", body: { contact: $("contact").value } }).then(function (r) {
+      verificationId = r.verificationId;
+      show("step-contact", false); show("step-code");
+      $("demo").hidden = !r.demoCode;
+      if (r.demoCode) $("demo").textContent = t("demo_hint", { code: r.demoCode });
+      $("code").focus();
+    }).catch(function (e) { $("err1").textContent = e.message; }).then(function () { $("send").disabled = false; });
+  }
+  function checkCode() {
+    $("err1").textContent = ""; $("check").disabled = true;
+    api("/v1/auth/ask/verify", { method: "POST", body: { verificationId: verificationId, code: $("code").value, name: $("name").value } }).then(function (r) {
+      session = { token: r.token, name: r.displayName }; remember(); enter();
+    }).catch(function (e) { $("err1").textContent = e.message; }).then(function () { $("check").disabled = false; });
+  }
+  $("send").onclick = sendCode;
+  $("resend").onclick = function () { $("code").value = ""; sendCode(); };
+  $("check").onclick = checkCode;
+  $("code").addEventListener("keydown", function (e) { if (e.key === "Enter") checkCode(); });
+  $("restart").onclick = function () { forget(); show("step-contact"); show("step-code", false); };
+
+  // ---- 2. what do you need
+  function enter() {
+    $("hi").textContent = t("hi", { name: session.name });
+    step("request");
+    if (catalog) return buildTiles();
+    api("/v1/vtu/catalog").then(function (c) { catalog = c; buildTiles(); }).catch(function (e) { $("err2").textContent = e.message; });
+  }
+
+  function buildTiles() {
+    $("tiles").innerHTML = "";
+    CATEGORIES.forEach(function (c) {
+      if (!catalog.billers.some(function (b) { return b.category === c.id; })) return;
+      var b = document.createElement("button");
+      b.className = "tile"; b.type = "button"; b.setAttribute("aria-pressed", String(category === c.id));
+      b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + c.icon + "</svg><span>" + t("cat_" + c.id) + "</span><small>" + t("cat_" + c.id + "_sub") + "</small>";
+      b.onclick = function () { pick(c.id); };
+      $("tiles").appendChild(b);
+    });
+  }
+
+  function billersFor(cat) { return catalog.billers.filter(function (b) { return b.category === cat; }); }
+  function currentBiller() { return catalog.billers.filter(function (b) { return b.id === $("biller").value; })[0]; }
+
+  function pick(cat, prefill) {
+    prefill = prefill || {};
+    category = cat; buildTiles(); show("form");
+    var billers = billersFor(cat);
+    $("biller").innerHTML = "";
+    billers.forEach(function (b) {
+      var o = document.createElement("option"); o.value = b.id; o.textContent = b.shortName ? b.name : b.name; o.disabled = !b.available; $("biller").appendChild(o);
+    });
+    $("biller-label").textContent = t("provider");
+    if (prefill.billerId) $("biller").value = prefill.billerId;
+    else { var first = billers.filter(function (b) { return b.available; })[0]; if (first) $("biller").value = first.id; }
+    biller(prefill);
+  }
+
+  function biller(prefill) {
+    prefill = prefill || {};
+    var b = currentBiller(); if (!b) return;
+    // Meter type and similar choices.
+    show("option-wrap", !!b.options);
+    if (b.options) {
+      $("option-label").textContent = b.options.label; $("option").innerHTML = "";
+      b.options.choices.forEach(function (c) { var o = document.createElement("option"); o.value = c.id; o.textContent = c.name; $("option").appendChild(o); });
+      if (prefill.optionId) $("option").value = prefill.optionId;
+    }
+    $("target-label").textContent = b.target.label;
+    $("target").placeholder = b.target.hint;
+    $("target").inputMode = b.target.kind === "text" ? "text" : "numeric";
+    $("target").value = prefill.target || "";
+    $("target-err").textContent = ""; show("customer", false);
+    // A free amount, or a list of plans.
+    var free = b.pricing.type === "amount";
+    show("amount-wrap", free); show("plan-wrap", !free);
+    if (free) {
+      $("amount").value = prefill.amount || "";
+      $("presets").innerHTML = "";
+      (b.pricing.presets || []).forEach(function (p) {
+        var c = document.createElement("button"); c.type = "button"; c.className = "chip"; c.textContent = fmt.naira(p);
+        c.onclick = function () { $("amount").value = p; }; $("presets").appendChild(c);
+      });
+      var min = b.pricing.min, max = b.pricing.max;
+      $("range").textContent = min && max ? t("range", { min: fmt.naira(min), max: fmt.naira(max) }) : min ? t("min_only", { min: fmt.naira(min) }) : "";
+    } else {
+      $("plan-label").textContent = category === "tv" ? t("package") : t("plan");
+      $("plan").innerHTML = "";
+      b.pricing.plans.forEach(function (p) {
+        var o = document.createElement("option"); o.value = p.id;
+        o.textContent = p.name + (p.validity ? " · " + p.validity : "") + " — " + fmt.naira(p.amount); $("plan").appendChild(o);
+      });
+      if (prefill.planId) $("plan").value = prefill.planId;
+    }
+    if (prefill.target) checkCustomer();
+  }
+  $("biller").onchange = function () { biller(); };
+
+  // Meters and smartcards show the owner's name before anything is asked of anyone.
+  function checkCustomer() {
+    var b = currentBiller(); if (!b) return;
+    var value = $("target").value.replace(/[\s-]/g, "");
+    show("customer", false);
+    var ok = new RegExp(b.target.pattern).test(value);
+    $("target-err").textContent = value && !ok ? b.target.errorText : "";
+    if (!ok || !b.customerCheck) return;
+    api("/v1/vtu/customers/validate", { method: "POST", body: { billerId: b.id, target: value, optionId: b.options ? $("option").value : null } })
+      .then(function (c) { $("customer").textContent = t("paying_for", { name: c.name }); show("customer"); $("target-err").textContent = ""; })
+      .catch(function (e) { $("target-err").textContent = e.message; });
+  }
+  $("target").addEventListener("input", function () { clearTimeout(customerTimer); customerTimer = setTimeout(checkCustomer, 450); });
+  $("option").onchange = checkCustomer;
+
+  // ---- the helper
+  $("understand").onclick = function () {
+    var text = $("say").value.trim(); if (!text) return;
+    $("understand").disabled = true; show("draft", false); $("err2").textContent = "";
+    api("/v1/helper/draft", { method: "POST", body: { text: text } }).then(function (d) {
+      var box = $("draft"); box.className = "draft"; box.innerHTML = "";
+      var line = function (html, cls) { var p = document.createElement("div"); if (cls) p.className = cls; p.textContent = html; box.appendChild(p); };
+      if (d.summary) line(t("understood") + ": " + d.summary);
+      d.notes.forEach(function (n) { line(n, "note-line"); });
+      d.problems.forEach(function (n) { line(n, "note-line"); box.classList.add("bad"); });
+      if (d.missing.length) line(t("need", { list: d.missing.map(function (k) { return t("need_" + k); }).join(", ") }), "note-line");
+      if (d.policy && d.policy.allowed === false) { line(d.policy.message, "note-line"); box.classList.add("bad"); }
+      if (!box.childNodes.length) line(t("need", { list: t("need_what") }));
+      show("draft");
+      var fill = d.partial || {};
+      if (fill.category && catalog) pick(fill.category, fill);
+    }).catch(function (e) { $("err2").textContent = e.message; }).then(function () { $("understand").disabled = false; });
+  };
+
+  // ---- create the link
+  $("create").onclick = function () {
+    $("err2").textContent = "";
+    var b = currentBiller(); if (!b) return;
+    var body = { billerId: b.id, target: $("target").value.replace(/[\s-]/g, ""), note: $("note").value.trim() || null };
+    if (b.options) body.optionId = $("option").value;
+    if (b.pricing.type === "plans") body.planId = $("plan").value; else body.amount = parseInt($("amount").value, 10) || 0;
+    $("create").disabled = true;
+    api("/v1/bill-links", { method: "POST", body: body }).then(function (l) {
+      var url = location.origin + "/pay/" + l.code;
+      $("linkbox").textContent = url;
+      $("done-text").textContent = t("done_text", { title: l.title, target: l.target.length > 6 ? l.target.slice(0, 4) + "•••" + l.target.slice(-3) : l.target });
+      $("whatsapp").href = "https://wa.me/?text=" + encodeURIComponent(t("share_text", { title: l.title, url: url }));
+      $("copylink").onclick = function () { copyText(url).then(function (ok) { $("copylink").textContent = t(ok ? "copied" : "copy_link"); setTimeout(function () { $("copylink").textContent = t("copy_link"); }, 1600); }); };
+      step("done");
+    }).catch(function (e) { $("err2").textContent = e.message; }).then(function () { $("create").disabled = false; });
+  };
+  $("another").onclick = function () { $("say").value = ""; show("draft", false); show("form", false); category = null; buildTiles(); $("note").value = ""; step("request"); };
+
+  I18N.init(function () {
+    if (session) { $("hi").textContent = t("hi", { name: session.name }); if (catalog) buildTiles(); }
+    if (category && !$("form").hidden) { var keep = { billerId: $("biller").value }; var b = $("biller-label"); if (b) b.textContent = t("provider"); }
+  });
+  try { var saved = JSON.parse(sessionStorage.getItem("ask")); if (saved && saved.token) { session = saved; enter(); } } catch (e) {}
+})();
+</script>
+</body>
+</html>

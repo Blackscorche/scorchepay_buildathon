@@ -45,6 +45,12 @@ tags:
     description: '"Pay my bill" links: the requester (signed in)'
   - name: Bill links (public)
     description: What the person paying a link uses. No auth
+  - name: Policy
+    description: The user's own spending rules, and a log of every decision
+  - name: Helper
+    description: Turns a sentence into a draft order. Never pays
+  - name: Ask
+    description: Ask for a top-up with only a phone code (no PIN, wallet or app)
   - name: Development
     description: Only when DEV_SIMULATE_PAYMENTS=true
   - name: Admin
@@ -621,11 +627,38 @@ paths:
               schema: { type: string }
         "404": { $ref: "#/components/responses/Error" }
 
+  /ask:
+    get:
+      operationId: askPage
+      tags: [Ask]
+      summary: The "ask for a top-up" web page (English, Hausa, Pidgin)
+      description: Verify a phone number, say what you need (or pick it), and get a link to share on WhatsApp. No account, wallet or app.
+      security: []
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema: { type: string }
+
+  /safety:
+    get:
+      operationId: safetyPage
+      tags: [Policy]
+      summary: "The safety web page: edit the spending rules, see the log, try to get past them"
+      security: []
+      responses:
+        "200":
+          description: HTML page
+          content:
+            text/html:
+              schema: { type: string }
+
   /pay/{code}:
     get:
       operationId: payPage
       tags: [Bill links (public)]
-      summary: The ready-made payer web page
+      summary: The ready-made payer web page (add `?lang=ha` or `?lang=pcm` for Hausa or Pidgin)
       security: []
       parameters:
         - $ref: "#/components/parameters/LinkCode"
@@ -636,7 +669,344 @@ paths:
             text/html:
               schema: { type: string }
 
+  # ------------------------------------------------------------------ Ask
+  /v1/auth/ask/start:
+    post:
+      operationId: askStart
+      tags: [Ask]
+      summary: Send a code to a phone or email, for asking without an account
+      description: |
+        Like sign-up, but it works for numbers that already have an account.
+        With `OTP_DEV_CODE` set (development) the response includes
+        `demoCode`, so a page can show a hint.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact]
+              properties:
+                contact: { type: string, example: "0803 123 4567" }
+      responses:
+        "200":
+          description: Code sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verificationId: { type: string, format: uuid }
+                  demoCode: { type: string, nullable: true, example: "123456" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/auth/ask/verify:
+    post:
+      operationId: askVerify
+      tags: [Ask]
+      summary: Check the code and get an "ask" session
+      description: |
+        Returns a session valid for 24 hours that can only: check customers
+        (`POST /v1/vtu/customers/validate`), create and view bill links
+        (`/v1/bill-links`), and use the bill helper (`POST /v1/helper/draft`).
+        Everything else answers `403 forbidden`. A number with no account gets
+        a guest account (no PIN) to own its links; signing up later with the
+        same number claims it and keeps the links. `name` is required the
+        first time, so the payer knows who is asking.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verificationId, code]
+              properties:
+                verificationId: { type: string, format: uuid }
+                code: { type: string, example: "123456" }
+                name: { type: string, example: Ladi }
+      responses:
+        "200":
+          description: Ask session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token: { type: string }
+                  displayName: { type: string, example: Ladi }
+                  isGuest: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+
+  # ------------------------------------------------------------------ Policy
+  /v1/policy:
+    get:
+      operationId: getPolicy
+      tags: [Policy]
+      summary: The user's spending rules
+      description: Full login only. An "ask" session gets `403 forbidden`.
+      responses:
+        "200":
+          description: Policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+    put:
+      operationId: putPolicy
+      tags: [Policy]
+      summary: Change the rules
+      description: |
+        Send only what changes. A number sets a limit, `null` removes it, and a
+        missing field is left alone. Rules can only narrow what the KYC tier
+        already allows. They apply to orders, requotes, bill links and the bill
+        helper, and are checked before an invoice is created.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                perPaymentCap: { type: integer, nullable: true, example: 2000 }
+                dailyCap: { type: integer, nullable: true, example: 5000 }
+                trustedOnly: { type: boolean, example: true }
+      responses:
+        "200":
+          description: The new policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /v1/policy/trusted:
+    post:
+      operationId: addTrusted
+      tags: [Policy]
+      summary: Add a trusted number, with a name to refer to it by
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, target]
+              properties:
+                label: { type: string, maxLength: 30, example: mama }
+                target: { type: string, description: "A phone, meter or smartcard number, 10 to 13 digits", example: "0803 123 4567" }
+      responses:
+        "200":
+          description: The new policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /v1/policy/trusted/{id}:
+    delete:
+      operationId: removeTrusted
+      tags: [Policy]
+      summary: Remove a trusted number
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The new policy
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Policy" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/policy/events:
+    get:
+      operationId: policyEvents
+      tags: [Policy]
+      summary: What the rules blocked and allowed, newest first
+      description: Every block is logged. Allowed payments are logged while a rule is active. Numbers are masked.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, default: 30, minimum: 1, maximum: 100 } }
+      responses:
+        "200":
+          description: Events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/PolicyEvent" }
+
+  # ------------------------------------------------------------------ Helper
+  /v1/assistant/chat:
+    post:
+      tags: [Helper]
+      summary: Talk with Scorche, the voice assistant
+      description: "One turn of conversation about bills, money and Bitcoin, in English, Pidgin, Yoruba, Hausa or Igbo. Answers from facts the server supplies (Bitcoin price and market cap, the user's limits and orders, the wallet balance). It can draft a purchase but never pays. With an AI model configured it chats freely; without one it answers price questions and drafts bills by rules."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [message]
+              properties:
+                message: { type: string, maxLength: 400, example: "What is bitcoin worth today" }
+                lang: { type: string, enum: [en, pcm, yo, ha, ig], description: The language the user picked }
+                history:
+                  type: array
+                  description: The last few turns
+                  items:
+                    type: object
+                    properties:
+                      role: { type: string, enum: [user, assistant] }
+                      text: { type: string }
+                walletSats: { type: integer, description: "Their Lightning wallet balance; only the phone knows it" }
+      responses:
+        "200":
+          description: The reply
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reply: { type: string, description: "What to say back; empty when `draft` carries the rest" }
+                  lang: { type: string, enum: [en, pcm, yo, ha, ig], description: The language the reply is in; use it to pick the voice }
+                  end: { type: boolean, description: They said goodbye }
+                  draft: { allOf: [{ $ref: "#/components/schemas/HelperDraft" }], nullable: true, type: object }
+                  usedAi: { type: boolean }
+                  market:
+                    type: object
+                    nullable: true
+                    properties:
+                      usd: { type: number }
+                      ngn: { type: number }
+                      usdMarketCap: { type: number, nullable: true }
+                      change24h: { type: number, nullable: true }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/stt:
+    post:
+      tags: [Helper]
+      summary: Turn a recording into words
+      description: "For Yoruba, Hausa and Igbo on phones that cannot recognise them. The body is the audio (WAV, M4A, MP3, WebM or OGG, up to 1.5 MB). A Whisper model reads it through the same provider as the assistant. Whisper knows Yoruba and Hausa and has no Igbo, which is auto-detected and experimental. Nothing is stored."
+      parameters:
+        - name: lang
+          in: query
+          schema: { type: string, enum: [en, pcm, yo, ha, ig] }
+      requestBody:
+        required: true
+        content:
+          audio/wav:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The words
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text: { type: string, example: "Please send 500 naira MTN airtime" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/tts:
+    post:
+      tags: [Helper]
+      summary: Say a sentence in a natural voice
+      description: "Returns an MP3 of the sentence for the voice assistant. Up to 320 characters; 503 `unavailable` when the server has no voice set up, in which case the app uses the phone's own voice."
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 320, example: "Say yes to continue, or no to cancel." }
+                lang: { type: string, enum: [en, pcm, yo, ha, ig], description: Picks the voice }
+      responses:
+        "200":
+          description: Spoken audio
+          content:
+            audio/mpeg:
+              schema: { type: string, format: binary }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+  /v1/helper/draft:
+    post:
+      operationId: helperDraft
+      tags: [Helper]
+      summary: Turn a sentence into a draft order. Nothing is created or paid
+      description: |
+        Understands English, Pidgin and a few Hausa words: "send ₦500 airtime to
+        08031234567", "abeg load 1k credit for mama", "pay my NEPA ₦5000 meter
+        12345678901 ikeja", "dstv compact 1234567890". A saved trusted name
+        ("mama") stands for its number; a number typed in the sentence wins.
+        The draft is checked against the user's spending rules, and a blocked
+        draft is logged. Works with a full login or an "ask" session.
+        `ready` is true only when the draft is complete, valid and allowed. To
+        act on it, send `request` to `POST /v1/vtu/orders` or `POST /v1/bill-links`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text: { type: string, maxLength: 300, example: "abeg load 500 credit for mama" }
+                context: { type: string, maxLength: 300, description: "What the user said just before, when that was not enough; read together with text", example: "send airtime to 08031234567" }
+      responses:
+        "200":
+          description: Draft
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/HelperDraft" }
+        "400": { $ref: "#/components/responses/Error" }
+
   # ------------------------------------------------------------------ Development
+  /v1/dev/status:
+    get:
+      operationId: devStatus
+      tags: [Development]
+      summary: Whether this server offers development helpers (404 when it doesn't)
+      security: []
+      responses:
+        "200":
+          description: Development helpers are on
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  demoAccounts: { type: boolean }
+                  simulatePayments: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /v1/dev/demo-account:
+    post:
+      operationId: devDemoAccount
+      tags: [Development]
+      summary: Make a throwaway, signed-in account (development only)
+      description: Returns a full login token and the account's username and PIN (`1234`).
+      security: []
+      responses:
+        "200":
+          description: Demo account
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  username: { type: string, example: demo_a1b2c3 }
+                  pin: { type: string, example: "1234" }
+                  token: { type: string }
+        "404": { $ref: "#/components/responses/Error" }
+
   /v1/dev/orders/{id}/simulate-payment:
     post:
       operationId: simulatePayment
@@ -831,7 +1201,7 @@ components:
             code:
               type: string
               enum: [signedOut, auth, usernameTaken, invalid, invalidTarget, customerNotFound, overLimit, alreadyPaid,
-                     billerUnavailable, invalidInvoice, notFound, network, unknown, cancelled, expired, inProgress]
+                     billerUnavailable, invalidInvoice, notFound, network, unknown, cancelled, expired, inProgress, policyBlocked, forbidden]
             message: { type: string }
       example: { error: { code: overLimit, message: "This is over your ₦10,000 limit per order." } }
 
@@ -1055,6 +1425,77 @@ components:
           nullable: true
           description: The current payment attempt, in full
 
+    Policy:
+      type: object
+      properties:
+        perPaymentCap: { type: integer, nullable: true, description: "Naira. null means no limit", example: 2000 }
+        dailyCap: { type: integer, nullable: true, example: 5000 }
+        trustedOnly: { type: boolean, description: Payments may only go to the trusted numbers }
+        trusted:
+          type: array
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              label: { type: string, example: mama }
+              target: { type: string, example: "08031234567" }
+              addedAt: { type: string, format: date-time }
+        tierLimits:
+          type: object
+          description: What the KYC tier already allows; the rules can only narrow it
+          properties:
+            perOrder: { type: integer, example: 10000 }
+            daily: { type: integer, example: 30000 }
+        usedToday: { type: integer, example: 0 }
+
+    PolicyEvent:
+      type: object
+      properties:
+        id: { type: integer }
+        at: { type: string, format: date-time }
+        source: { type: string, enum: [order, requote, billLink, linkPayment, helper] }
+        outcome: { type: string, enum: [blocked, allowed] }
+        reason: { type: string, nullable: true, enum: [untrustedTarget, overPaymentCap, overDailyCap] }
+        message: { type: string }
+        billerName: { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        target: { type: string, nullable: true, description: Masked, example: "0805••••567" }
+        amount: { type: integer, nullable: true }
+        orderId: { type: string, nullable: true }
+
+    HelperDraft:
+      type: object
+      properties:
+        understood: { type: boolean, description: It found out what is being bought }
+        ready: { type: boolean, description: "Complete, valid and allowed by the user's rules" }
+        request: { allOf: [{ $ref: "#/components/schemas/OrderRequest" }], nullable: true, type: object }
+        partial:
+          type: object
+          description: What was understood so far, for pre-filling a form
+          properties:
+            category: { type: string, nullable: true }
+            billerId: { type: string, nullable: true }
+            target: { type: string, nullable: true }
+            optionId: { type: string, nullable: true }
+            planId: { type: string, nullable: true }
+            amount: { type: integer, nullable: true }
+        summary: { type: string, nullable: true, example: "₦500 MTN airtime to mama (0803••••567)" }
+        missing:
+          type: array
+          description: "What to ask for next: what, amount, number, network, plan, disco, meterNumber, provider, smartcard, package"
+          items: { type: string }
+        notes: { type: array, items: { type: string }, description: "e.g. \"I guessed MTN from the number. Check it.\"" }
+        problems: { type: array, items: { type: string }, description: "Validation errors, for example a bad number" }
+        policy:
+          type: object
+          nullable: true
+          properties:
+            allowed: { type: boolean }
+            reason: { type: string, description: "When blocked: untrustedTarget, overPaymentCap or overDailyCap" }
+            message: { type: string }
+        reply: { type: string, nullable: true, description: "A short question or answer in the user's language when the draft is not ready; show or speak it" }
+        usedAi: { type: boolean, description: A model helped read the sentence. Numbers are never sent to it }
+
     PublicBillLink:
       type: object
       properties:
@@ -1075,6 +1516,13 @@ components:
           properties:
             status: { $ref: "#/components/schemas/OrderStatus" }
             sats: { type: integer, example: 3076 }
+            approx:
+              type: object
+              nullable: true
+              description: What the sats are worth, for people paying from abroad
+              properties:
+                usd: { type: number, example: 3.77 }
+                gbp: { type: number, example: 2.82 }
             invoice: { type: string }
             expiresAt: { type: string, format: date-time }
             paidAt: { type: string, format: date-time, nullable: true }

@@ -26,8 +26,9 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::App;
-use crate::auth::AuthUser;
+use crate::auth::AskUser;
 use crate::json::ApiJson;
+use crate::policy::{self, Source};
 use crate::error::{ApiError, ApiResult};
 use crate::orders::{OrderRequest, OrderRow, check_per_order_limit, describe, order_row, place_order, requote_order};
 
@@ -100,7 +101,7 @@ impl CreateLink {
 /// - **New bill:** checked now (biller, target, plan, customer name,
 ///   per-order limit) and priced in sats only when someone opens an
 ///   invoice.
-async fn create(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser, ApiJson(body): ApiJson<CreateLink>) -> ApiResult<Json<Value>> {
+async fn create(State(app): State<Arc<App>>, AskUser(user_id): AskUser, ApiJson(body): ApiJson<CreateLink>) -> ApiResult<Json<Value>> {
     let note = body.note.clone().map(|n| n.trim().to_string()).filter(|n| !n.is_empty());
     if note.as_ref().is_some_and(|n| n.chars().count() > 140) {
         return Err(ApiError::bad_request("Keep the note under 140 characters."));
@@ -129,6 +130,7 @@ async fn create(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser, ApiJso
 
 async fn new_bill_link(app: &App, user_id: Uuid, request: OrderRequest, note: Option<String>) -> ApiResult<LinkRow> {
     let d = describe(app, &request).await?;
+    policy::enforce(app, user_id, &d, None, Source::BillLink).await?;
     // Fail early if it can never fit; the daily limit is checked when
     // it's paid, which may be another day.
     check_per_order_limit(app, user_id, d.amount).await?;
@@ -212,7 +214,7 @@ async fn insert_link(
     load(app, &code).await
 }
 
-async fn list(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser) -> ApiResult<Json<Value>> {
+async fn list(State(app): State<Arc<App>>, AskUser(user_id): AskUser) -> ApiResult<Json<Value>> {
     let links: Vec<LinkRow> =
         sqlx::query_as(&format!("SELECT {LINK_COLUMNS} FROM bill_links WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50"))
             .bind(user_id)
@@ -225,7 +227,7 @@ async fn list(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser) -> ApiRe
     Ok(Json(Value::Array(out)))
 }
 
-async fn get_own(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser, Path(code): Path<String>) -> ApiResult<Json<Value>> {
+async fn get_own(State(app): State<Arc<App>>, AskUser(user_id): AskUser, Path(code): Path<String>) -> ApiResult<Json<Value>> {
     let link = load(&app, &code).await?;
     if link.user_id != user_id {
         return Err(ApiError::not_found("Link not found."));
@@ -235,7 +237,7 @@ async fn get_own(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser, Path(
 
 /// Stops a link from being paid. Not possible while a payment is held
 /// or the bill is already paid.
-async fn cancel(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser, Path(code): Path<String>) -> ApiResult<Json<Value>> {
+async fn cancel(State(app): State<Arc<App>>, AskUser(user_id): AskUser, Path(code): Path<String>) -> ApiResult<Json<Value>> {
     let link = load(&app, &code).await?;
     if link.user_id != user_id {
         return Err(ApiError::not_found("Link not found."));
@@ -293,7 +295,7 @@ async fn invoice(State(app): State<Arc<App>>, Path(code): Path<String>) -> ApiRe
         Some(_) => return Err(ApiError::conflict("inProgress", "A payment for this bill is being processed.")),
     };
     if new_order {
-        let id = place_order(&app, link.user_id, &link.request).await.map_err(for_payer)?;
+        let id = place_order(&app, link.user_id, &link.request, Source::LinkPayment).await.map_err(for_payer)?;
         sqlx::query("UPDATE bill_links SET order_id = $2 WHERE id = $1").bind(&code).bind(&id).execute(&mut *tx).await?;
     }
     tx.commit().await?;
@@ -320,7 +322,7 @@ async fn pay_page(Path(code): Path<String>) -> Html<String> {
     // The code is only placed in a data attribute; strip anything that
     // isn't part of a link code.
     let code: String = code.chars().filter(|c| c.is_ascii_alphanumeric()).take(32).collect();
-    Html(PAY_PAGE.replace("{{CODE}}", &code))
+    Html(crate::pages::render(PAY_PAGE).replace("{{CODE}}", &code))
 }
 
 /// Errors from the requester's side, worded for the payer.
@@ -329,6 +331,10 @@ fn for_payer(err: ApiError) -> ApiError {
         "overLimit" => ApiError::unprocessable(
             "overLimit",
             "This bill is over the requester's limit right now. Ask them to verify their account or try tomorrow.",
+        ),
+        "policyBlocked" => ApiError::unprocessable(
+            "policyBlocked",
+            "This bill can't be paid right now. Ask the person who sent it to check their settings.",
         ),
         _ => err,
     }
@@ -437,9 +443,15 @@ async fn public_json(app: &App, link: &LinkRow) -> ApiResult<Value> {
     let d = details(link, order.as_ref());
     let (requester,): (String,) =
         sqlx::query_as("SELECT display_name FROM users WHERE id = $1").bind(link.user_id).fetch_one(&app.db).await?;
+    // What the payment is worth in dollars and pounds, for people paying from abroad.
+    let approx = match order.as_ref() {
+        Some(o) => app.rates.sats_in_fiat(o.sats).await,
+        None => None,
+    };
     let payment = order.as_ref().map(|o| {
         let status = if o.status == "awaitingPayment" && o.expires_at <= Utc::now() { "expired" } else { o.status.as_str() };
         json!({
+            "approx": approx.map(|(usd, gbp)| json!({ "usd": usd, "gbp": gbp })),
             "status": status,
             "sats": o.sats,
             "invoice": o.invoice,
@@ -466,7 +478,7 @@ async fn public_json(app: &App, link: &LinkRow) -> ApiResult<Value> {
 }
 
 /// `0803****567`: enough to recognise, not enough to reuse.
-fn mask(target: &str) -> String {
+pub fn mask(target: &str) -> String {
     let n = target.chars().count();
     if n <= 7 {
         return "•".repeat(n);

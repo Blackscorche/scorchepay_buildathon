@@ -30,10 +30,11 @@ use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::App;
-use crate::auth::AuthUser;
+use crate::auth::{AskUser, AuthUser};
 use crate::catalog::{Biller, Category, Pricing};
 use crate::config::ProviderKind;
 use crate::json::{ApiJson, OptionalApiJson};
+use crate::policy::{self, Source};
 use crate::error::{ApiError, ApiResult, naira, sats};
 use crate::providers::{CustomerLookup, Fulfilment, Purchase};
 use crate::rates::sats_for;
@@ -68,7 +69,7 @@ async fn catalog(State(app): State<Arc<App>>, Query(q): Query<CatalogQuery>) -> 
 }
 
 /// Caps per KYC tier, in naira.
-fn tier_caps(tier: i32) -> (i64, i64) {
+pub fn tier_caps(tier: i32) -> (i64, i64) {
     if tier >= 1 { (200_000, 1_000_000) } else { (10_000, 30_000) }
 }
 
@@ -91,7 +92,7 @@ fn limits_json(tier: i32, used_today: i64) -> Value {
 async fn limits(State(app): State<Arc<App>>, AuthUser(user_id): AuthUser) -> ApiResult<Json<Value>> {
     let mut tx = app.db.begin().await?;
     let tier = lock_user(&mut tx, user_id).await?;
-    let used = used_today(&mut tx, user_id, None).await?;
+    let used = used_today(&mut *tx, user_id, None).await?;
     tx.commit().await?;
     Ok(Json(limits_json(tier, used)))
 }
@@ -113,7 +114,7 @@ fn start_of_today() -> DateTime<Utc> {
 
 /// Today's spend: paid orders and unexpired quotes (which hold the limit
 /// until they expire). Expired, failed and refunded orders don't count.
-async fn used_today(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, excluding: Option<&str>) -> ApiResult<i64> {
+pub async fn used_today<'e, E: sqlx::PgExecutor<'e>>(db: E, user_id: Uuid, excluding: Option<&str>) -> ApiResult<i64> {
     let (used,): (Option<i64>,) = sqlx::query_as(
         "SELECT SUM(amount)::BIGINT FROM orders
          WHERE user_id = $1 AND created_at >= $2 AND ($3::TEXT IS NULL OR id <> $3)
@@ -123,7 +124,7 @@ async fn used_today(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, excluding
     .bind(user_id)
     .bind(start_of_today())
     .bind(excluding)
-    .fetch_one(&mut **tx)
+    .fetch_one(db)
     .await?;
     Ok(used.unwrap_or(0))
 }
@@ -142,7 +143,7 @@ struct ValidateRequest {
 
 async fn validate_customer(
     State(app): State<Arc<App>>,
-    AuthUser(_): AuthUser,
+    AskUser(_): AskUser,
     ApiJson(body): ApiJson<ValidateRequest>,
 ) -> ApiResult<Json<Value>> {
     let catalog = app.catalog().await;
@@ -188,7 +189,7 @@ fn checked_target(biller: &Biller, target: &str) -> ApiResult<String> {
 // ---------------------------------------------------------------------
 
 /// `OrderRequest` in the app: what to buy.
-#[derive(Clone, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OrderRequest {
     pub biller_id: String,
@@ -226,6 +227,8 @@ struct Quote {
     payment_hash: String,
     preimage: String,
     expires_at: DateTime<Utc>,
+    /// Whether a spending policy was active (and passed), for the log.
+    policy_active: bool,
 }
 
 impl std::ops::Deref for Quote {
@@ -307,10 +310,13 @@ pub async fn describe(app: &App, request: &OrderRequest) -> ApiResult<Described>
     })
 }
 
-/// Describes `request`, prices it in sats and issues its invoice. Limits
-/// are checked separately, under the user's lock.
-async fn price(app: &App, request: &OrderRequest) -> ApiResult<Quote> {
+/// Describes `request`, checks it against the user's spending policy, prices
+/// it in sats and issues its invoice. The policy runs before the invoice, so
+/// a blocked payment never gets one. Tier limits are checked separately,
+/// under the user's lock.
+async fn price(app: &App, user_id: Uuid, request: &OrderRequest, source: Source, excluding: Option<&str>) -> ApiResult<Quote> {
     let described = describe(app, request).await?;
+    let policy_active = policy::enforce(app, user_id, &described, excluding, source).await?;
     let rate = app.rates.quote_rate().await.map_err(|e| {
         tracing::error!("no rate: {e:#}");
         ApiError::unavailable("network", "Prices are unavailable right now. Try again in a minute.")
@@ -329,6 +335,7 @@ async fn price(app: &App, request: &OrderRequest) -> ApiResult<Quote> {
         payment_hash: invoice.payment_hash,
         preimage: invoice.preimage,
         expires_at: Utc::now() + Duration::seconds(quote_secs as i64),
+        policy_active,
         described,
     })
 }
@@ -349,7 +356,7 @@ pub async fn check_per_order_limit(app: &App, user_id: Uuid, amount: i64) -> Api
 async fn check_limits(tx: &mut Transaction<'_, Postgres>, user_id: Uuid, amount: i64, order_id: Option<&str>) -> ApiResult<()> {
     let tier = lock_user(tx, user_id).await?;
     let (per_order, daily) = tier_caps(tier);
-    let remaining = (daily - used_today(tx, user_id, order_id).await?).max(0);
+    let remaining = (daily - used_today(&mut **tx, user_id, order_id).await?).max(0);
     if amount > per_order {
         return Err(ApiError::unprocessable("overLimit", format!("This is over your {} limit per order.", naira(per_order))));
     }
@@ -367,14 +374,14 @@ async fn create_order(
     AuthUser(user_id): AuthUser,
     ApiJson(request): ApiJson<OrderRequest>,
 ) -> ApiResult<Json<Value>> {
-    let id = place_order(&app, user_id, &request).await?;
+    let id = place_order(&app, user_id, &request, Source::Order).await?;
     Ok(Json(load_order(&app, user_id, &id).await?))
 }
 
 /// Quotes `request` for `user_id` (within their limits) and saves it as a
 /// new order awaiting payment. Returns its ID.
-pub async fn place_order(app: &App, user_id: Uuid, request: &OrderRequest) -> ApiResult<String> {
-    let q = price(app, request).await?;
+pub async fn place_order(app: &App, user_id: Uuid, request: &OrderRequest, source: Source) -> ApiResult<String> {
+    let q = price(app, user_id, request, source, None).await?;
     let id = new_order_id();
     let mut tx = app.db.begin().await?;
     check_limits(&mut tx, user_id, q.amount, None).await?;
@@ -411,6 +418,9 @@ pub async fn place_order(app: &App, user_id: Uuid, request: &OrderRequest) -> Ap
     .execute(&mut *tx)
     .await?;
     tx.commit().await?;
+    if q.policy_active {
+        policy::record_allowed(app, user_id, source, &q, &id).await?;
+    }
     Ok(id)
 }
 
@@ -432,7 +442,7 @@ pub async fn requote_order(app: &App, user_id: Uuid, id: &str, request: Option<O
         Some(request) => request,
         None => stored_request(app, user_id, id).await?,
     };
-    let q = price(app, &request).await?;
+    let q = price(app, user_id, &request, Source::Requote, Some(id)).await?;
 
     let mut tx = app.db.begin().await?;
     check_limits(&mut tx, user_id, q.amount, Some(id)).await?;

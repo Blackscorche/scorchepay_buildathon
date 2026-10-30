@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0A0A0B">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%23FF4B1F'/%3E%3C/svg%3E">
+<title>Safety · ScorchePay</title>
+<style>
+/*{{COMMON_CSS}}*/
+.grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 860px) { .grid { grid-template-columns: 1fr 1fr; align-items: start; } }
+.lead { max-width: 60ch; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 14px; background: var(--surface2); border-radius: var(--radius-sm); cursor: pointer; }
+.toggle b { display: block; font-size: 15px; font-weight: 600; }
+.toggle small { color: var(--muted); font-size: 13px; }
+.switch { position: relative; width: 46px; height: 28px; flex: none; border-radius: 999px; background: var(--surface3); transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: #fff; transition: transform .15s; }
+input:checked + .switch { background: var(--ember); }
+input:checked + .switch::after { transform: translateX(18px); }
+.toggle input { position: absolute; opacity: 0; pointer-events: none; }
+.toggle:has(input:focus-visible) { outline: 2px solid var(--ember); outline-offset: 2px; }
+.trusted { display: flex; flex-direction: column; gap: 8px; }
+.person { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 12px; background: var(--surface2); border-radius: var(--radius-sm); }
+.person b { font-weight: 600; }
+.person span { color: var(--muted); font-size: 13.5px; }
+.person button { width: auto; height: 32px; padding: 0 12px; font-size: 13px; border-radius: 10px; }
+.log { display: flex; flex-direction: column; gap: 8px; max-height: 460px; overflow-y: auto; }
+.event { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; padding: 11px 12px; background: var(--surface2); border-radius: var(--radius-sm); font-size: 14px; }
+.event .when { color: var(--faint); font-size: 12px; grid-column: 1 / -1; display: flex; justify-content: space-between; }
+.event .msg { grid-column: 1 / -1; }
+.empty { color: var(--muted); text-align: center; padding: 22px 8px; }
+.try { display: grid; gap: 10px; grid-template-columns: 1fr; }
+@media (min-width: 560px) { .try { grid-template-columns: 1fr 1fr; } }
+.try button { height: auto; padding: 14px; flex-direction: column; align-items: flex-start; text-align: left; gap: 4px; font-size: 15px; }
+.try button small { font-weight: 400; opacity: .8; font-size: 12.5px; line-height: 1.35; }
+.result { margin-top: 12px; padding: 14px; border-radius: var(--radius-sm); background: var(--surface2); font-size: 14.5px; }
+.result.ok { border: 1px solid rgba(46,213,115,.4); }
+.result.no { border: 1px solid rgba(255,77,109,.45); }
+.say { color: var(--muted); font-style: italic; margin-bottom: 6px; }
+</style>
+</head>
+<body>
+<main class="wrap wide">
+  <div class="top"><div class="brand"><i></i>ScorchePay</div><button class="link" id="logout" hidden>Log out</button></div>
+
+  <div>
+    <h1>Safety</h1>
+    <p class="sub lead">Set your own rules for spending. Every payment, including anything the bill helper drafts, is checked against them before an invoice exists, and every decision is logged here.</p>
+  </div>
+
+  <!-- Log in -->
+  <section id="login" class="card stack" style="max-width:440px">
+    <div><label for="username">Username</label><input id="username" autocomplete="username" placeholder="ada_lovelace"></div>
+    <div><label for="pin">PIN</label><input id="pin" type="password" inputmode="numeric" maxlength="4" autocomplete="current-password" placeholder="4 digits"></div>
+    <button id="signin">Log in</button>
+    <button class="ghost" id="demo-account" hidden>Try it with a demo account</button>
+    <p class="err" id="login-err"></p>
+  </section>
+
+  <div id="app" hidden class="stack">
+    <section class="card stack">
+      <div class="spread"><h2>Try to get past the rules</h2><span class="tag info" id="rules-state"></span></div>
+      <p class="hint">Each button asks the bill helper to draft a payment, the way a tricked assistant would. Nothing is paid. Start with the demo rules.</p>
+      <button class="ghost small" id="demo-rules">Use the demo rules (₦2,000 per payment, trusted numbers only, "mama" is trusted)</button>
+      <div class="try">
+        <button class="ghost" data-say="send ₦500 airtime to 0805 123 4567"><span>1 · A number you never added</span><small>"send ₦500 airtime to 0805 123 4567"</small></button>
+        <button class="ghost" data-say="send ₦5,000 airtime to mama"><span>2 · Too much</span><small>"send ₦5,000 airtime to mama"</small></button>
+        <button class="ghost" data-say="send ₦500 airtime to mama"><span>3 · Trusted and within limits</span><small>"send ₦500 airtime to mama"</small></button>
+        <button class="ghost" data-say="send ₦500 airtime to mama 0805 123 4567"><span>4 · A name with a new number slipped in</span><small>"send ₦500 airtime to mama 0805 123 4567"</small></button>
+      </div>
+      <div class="result" id="result" hidden></div>
+    </section>
+
+    <div class="grid">
+      <section class="card stack">
+        <h2>Your rules</h2>
+        <div><label for="per">Most for one payment (₦)</label><input id="per" inputmode="numeric" placeholder="No limit"></div>
+        <div><label for="daily">Most per day (₦)</label><input id="daily" inputmode="numeric" placeholder="No limit"></div>
+        <label class="toggle" for="trusted-only">
+          <span><b>Trusted numbers only</b><small>Payments can only go to numbers on your list.</small></span>
+          <input type="checkbox" id="trusted-only"><span class="switch"></span>
+        </label>
+        <button id="save">Save rules</button>
+        <p class="hint" id="tier"></p>
+        <p class="err" id="save-err"></p>
+
+        <h2 style="margin-top:6px">Trusted numbers</h2>
+        <div class="trusted" id="trusted"></div>
+        <div class="row">
+          <input id="t-label" placeholder="Name, e.g. mama" maxlength="30" style="flex:1">
+          <input id="t-number" inputmode="numeric" placeholder="Number" style="flex:1.3">
+        </div>
+        <button class="ghost small" id="add">Add to trusted</button>
+        <p class="err" id="add-err"></p>
+      </section>
+
+      <section class="card stack">
+        <div class="spread"><h2>What happened</h2><span class="hint">updates live</span></div>
+        <div class="log" id="log"></div>
+      </section>
+    </div>
+  </div>
+
+  <p class="fine">Rules apply to orders, bill links and the bill helper. Numbers in the log are masked.</p>
+</main>
+
+<script>/*{{COMMON_JS}}*/</script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var token = null, timer = null;
+  try { token = sessionStorage.getItem("safety"); } catch (e) {}
+
+  function api(path, opts) {
+    opts = opts || {};
+    var headers = { "content-type": "application/json" };
+    if (token) headers.authorization = "Bearer " + token;
+    return fetch(path, { method: opts.method || "GET", headers: headers, body: opts.body ? JSON.stringify(opts.body) : undefined }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (json) {
+        if (res.status === 401 && token) signOut();
+        if (!res.ok) throw new Error((json.error && json.error.message) || "Something went wrong. Try again.");
+        return json;
+      });
+    });
+  }
+  function signIn(newToken) {
+    token = newToken; try { sessionStorage.setItem("safety", token); } catch (e) {}
+    $("login").hidden = true; $("app").hidden = false; $("logout").hidden = false;
+    load(); clearInterval(timer); timer = setInterval(loadLog, 3000);
+  }
+  function signOut() {
+    token = null; try { sessionStorage.removeItem("safety"); } catch (e) {}
+    clearInterval(timer); $("login").hidden = false; $("app").hidden = true; $("logout").hidden = true;
+  }
+  $("logout").onclick = signOut;
+
+  $("signin").onclick = function () {
+    $("login-err").textContent = "";
+    api("/v1/auth/login", { method: "POST", body: { username: $("username").value, pin: $("pin").value } })
+      .then(function (r) { signIn(r.token); }).catch(function (e) { $("login-err").textContent = e.message; });
+  };
+  $("pin").addEventListener("keydown", function (e) { if (e.key === "Enter") $("signin").click(); });
+
+  // A throwaway account, offered only by servers running in development mode,
+  // and only created when someone asks for one.
+  fetch("/v1/dev/status").then(function (res) { if (res.ok) $("demo-account").hidden = false; }).catch(function () {});
+  $("demo-account").onclick = function () {
+    $("login-err").textContent = "";
+    fetch("/v1/dev/demo-account", { method: "POST" }).then(function (res) { return res.json(); })
+      .then(function (r) { if (r.token) signIn(r.token); else throw new Error(); })
+      .catch(function () { $("login-err").textContent = "Couldn't make a demo account."; });
+  };
+
+  function money(n) { return n == null ? "" : String(n); }
+  var policy = null;
+  function load() {
+    api("/v1/policy").then(function (p) { policy = p; paint(); }).catch(function () {});
+    loadLog();
+  }
+  function paint() {
+    $("per").value = money(policy.perPaymentCap); $("daily").value = money(policy.dailyCap);
+    $("trusted-only").checked = policy.trustedOnly;
+    $("tier").textContent = "Your account already allows up to " + fmt.naira(policy.tierLimits.perOrder) + " per order and " + fmt.naira(policy.tierLimits.daily) + " a day. These rules can only narrow that. Spent today: " + fmt.naira(policy.usedToday) + ".";
+    var on = policy.perPaymentCap || policy.dailyCap || policy.trustedOnly;
+    $("rules-state").textContent = on ? "Rules on" : "No rules yet";
+    $("rules-state").className = "tag " + (on ? "ok" : "info");
+    var box = $("trusted"); box.innerHTML = "";
+    policy.trusted.forEach(function (p) {
+      var row = document.createElement("div"); row.className = "person";
+      row.innerHTML = "<div><b></b> <span></span></div>"; row.querySelector("b").textContent = p.label; row.querySelector("span").textContent = p.target;
+      var del = document.createElement("button"); del.className = "ghost"; del.textContent = "Remove";
+      del.onclick = function () { api("/v1/policy/trusted/" + p.id, { method: "DELETE" }).then(function (r) { policy = r; paint(); }); };
+      row.appendChild(del); box.appendChild(row);
+    });
+  }
+  function cap(value) { var n = parseInt(String(value).replace(/[^\d]/g, ""), 10); return n > 0 ? n : null; }
+  $("save").onclick = function () {
+    $("save-err").textContent = "";
+    api("/v1/policy", { method: "PUT", body: { perPaymentCap: cap($("per").value), dailyCap: cap($("daily").value), trustedOnly: $("trusted-only").checked } })
+      .then(function (r) { policy = r; paint(); }).catch(function (e) { $("save-err").textContent = e.message; });
+  };
+  $("add").onclick = function () {
+    $("add-err").textContent = "";
+    api("/v1/policy/trusted", { method: "POST", body: { label: $("t-label").value, target: $("t-number").value } })
+      .then(function (r) { policy = r; paint(); $("t-label").value = ""; $("t-number").value = ""; })
+      .catch(function (e) { $("add-err").textContent = e.message; });
+  };
+
+  var SOURCES = { order: "an order", requote: "a new quote", billLink: "a bill link", linkPayment: "a payment on a link", helper: "the bill helper" };
+  function loadLog() {
+    api("/v1/policy/events?limit=40").then(function (events) {
+      var box = $("log"); box.innerHTML = "";
+      if (!events.length) { box.innerHTML = '<div class="empty">Nothing yet. Try one of the buttons above.</div>'; return; }
+      events.forEach(function (e) {
+        var row = document.createElement("div"); row.className = "event";
+        var blocked = e.outcome === "blocked";
+        row.innerHTML = '<div class="when"><span></span><span></span></div><span class="tag"></span><div class="msg"></div>';
+        var spans = row.querySelectorAll(".when span");
+        spans[0].textContent = new Date(e.at).toLocaleTimeString(); spans[1].textContent = "from " + (SOURCES[e.source] || e.source);
+        var tag = row.querySelector(".tag"); tag.textContent = blocked ? "Blocked" : "Allowed"; tag.className = "tag " + (blocked ? "no" : "ok");
+        row.querySelector(".msg").textContent = e.message + (e.amount ? "  (" + fmt.naira(e.amount) + (e.target ? " to " + e.target : "") + ")" : "");
+        box.appendChild(row);
+      });
+    }).catch(function () {});
+  }
+
+  // The four tries: the bill helper drafts what a tricked assistant might ask for.
+  function tryIt(say) {
+    var r = $("result"); r.hidden = false; r.className = "result"; r.innerHTML = "";
+    api("/v1/helper/draft", { method: "POST", body: { text: say } }).then(function (d) {
+      var ok = d.ready; r.className = "result " + (ok ? "ok" : "no");
+      var q = document.createElement("div"); q.className = "say"; q.textContent = "“" + say + "”"; r.appendChild(q);
+      var line = document.createElement("div");
+      line.textContent = ok ? "Passed your rules: " + d.summary + ". You'd still confirm it before anything is paid." : (d.policy && d.policy.message) || ("Not ready: " + (d.missing || []).join(", "));
+      var tag = document.createElement("span"); tag.className = "tag " + (ok ? "ok" : "no"); tag.textContent = ok ? "Passed" : "Blocked"; tag.style.marginRight = "8px";
+      line.prepend(tag); r.appendChild(line); loadLog();
+    }).catch(function (e) { r.className = "result no"; r.textContent = e.message; });
+  }
+  Array.prototype.forEach.call(document.querySelectorAll("[data-say]"), function (b) { b.onclick = function () { tryIt(b.getAttribute("data-say")); }; });
+
+  $("demo-rules").onclick = function () {
+    api("/v1/policy", { method: "PUT", body: { perPaymentCap: 2000, trustedOnly: true } })
+      .then(function () { return api("/v1/policy/trusted", { method: "POST", body: { label: "mama", target: "08031234567" } }).catch(function () {}); })
+      .then(load);
+  };
+
+  if (token) signIn(token);
+})();
+</script>
+</body>
+</html>
