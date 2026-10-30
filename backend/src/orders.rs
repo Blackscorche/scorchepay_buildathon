@@ -743,15 +743,24 @@ async fn held_payment(app: &App, order_id: &str) -> ApiResult<Option<(PaymentHas
 /// been paid, so the rest of the flow (buying, receipt, failing back)
 /// can be tried without a Lightning wallet. Enabled by
 /// DEV_SIMULATE_PAYMENTS; no auth, so bill links can be tried too.
-async fn simulate_payment(State(app): State<Arc<App>>, Path(id): Path<String>) -> ApiResult<Json<Value>> {
+async fn simulate_payment(State(app): State<Arc<App>>, Path(id): Path<String>, auth: std::result::Result<AuthUser, ApiError>) -> ApiResult<Json<Value>> {
     if !app.config.dev_simulate_payments {
         return Err(ApiError::not_found("Simulated payments are off (DEV_SIMULATE_PAYMENTS)."));
     }
+    let owner = if app.config.airtime_data_provider == ProviderKind::SmePlug {
+        let AuthUser(user) = auth?;
+        if Some(user) != app.config.live_provider_test_user {
+            return Err(ApiError::not_found("Live provider testing is restricted to the configured tester."));
+        }
+        Some(user)
+    } else { None };
     let updated = sqlx::query(
         "UPDATE orders SET status = 'paid', paid_at = now(), simulated = true
-         WHERE id = $1 AND status = 'awaitingPayment' AND expires_at > now()",
+         WHERE id = $1 AND status = 'awaitingPayment' AND expires_at > now()
+           AND ($2::uuid IS NULL OR user_id = $2)",
     )
     .bind(&id)
+    .bind(owner)
     .execute(&app.db)
     .await?;
     if updated.rows_affected() == 0 {

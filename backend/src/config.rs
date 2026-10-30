@@ -35,6 +35,7 @@ pub struct Config {
     pub otp_dev_code: Option<String>,
     /// Development only: enables POST /v1/dev/orders/{id}/simulate-payment.
     pub dev_simulate_payments: bool,
+    pub live_provider_test_user: Option<uuid::Uuid>,
 
     pub ldk_storage_dir: String,
     pub ldk_listen_port: u16,
@@ -100,6 +101,7 @@ impl Config {
             admin_token: required("ADMIN_TOKEN")?,
             otp_dev_code: optional("OTP_DEV_CODE"),
             dev_simulate_payments: var_or("DEV_SIMULATE_PAYMENTS", "false") == "true",
+            live_provider_test_user: optional("LIVE_PROVIDER_TEST_USER_ID").map(|v| v.parse()).transpose().context("LIVE_PROVIDER_TEST_USER_ID must be a user UUID")?,
             ldk_storage_dir: var_or("LDK_STORAGE_DIR", "./data/ldk"),
             ldk_listen_port: parse_or("LDK_LISTEN_PORT", 9735)?,
             network: match var_or("BITCOIN_NETWORK", "signet").as_str() {
@@ -154,8 +156,8 @@ impl Config {
         if config.airtime_data_provider == ProviderKind::SmePlug && config.smeplug_key.is_none() {
             bail!("VTU_PROVIDER=smeplug needs SMEPLUG_API_KEY");
         }
-        if config.airtime_data_provider == ProviderKind::SmePlug && config.dev_simulate_payments {
-            bail!("DEV_SIMULATE_PAYMENTS must be false when VTU_PROVIDER=smeplug; simulated payment could spend the live provider wallet");
+        if config.airtime_data_provider == ProviderKind::SmePlug && config.dev_simulate_payments && config.live_provider_test_user.is_none() {
+            bail!("Live SMEPlug simulation requires LIVE_PROVIDER_TEST_USER_ID; otherwise set DEV_SIMULATE_PAYMENTS=false");
         }
         if config.kyc_provider == KycProviderKind::MonoProve
             && (config.mono_secret_key.is_none() || config.mono_webhook_secret.is_none())
